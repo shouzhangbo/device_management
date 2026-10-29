@@ -1,0 +1,374 @@
+{
+  "review_id": "TECH-REV-20261029-001",
+  "tech_design_id": "tech-design.md@V1.3.0",
+  "prd_id": null,
+  "prd_note": "无 PRD。输入为需求方口述（2026-10-29 会话），tech-design.md §1.1 已声明该前置偏差；FR-001~FR-006 为设计文档自拟编号，非正式需求基线。",
+  "status": "rejected",
+  "verdict": "不通过（按技能字面公式总分 7.600 < 8.0，且 Step 0 宪法前置未通过，一票否决）",
+  "total_score": 7.6,
+  "total_score_normalized": 8.444,
+  "loop_count": 2,
+  "score_recalc": "Σ(得分 × 权重) = 9.0×0.25 + 8.5×0.20 + 8.0×0.15 + 8.5×0.10 + 8.0×0.15 + 8.0×0.05 = 2.250+1.700+1.200+0.850+1.200+0.400 = 7.600",
+  "scoring_arithmetic_defect": {
+    "id": "S-01",
+    "found_by": "评审产物独立复算（非某个角色报告）",
+    "finding": "tech-review SKILL.md 定义的 6 维权重求和 = 0.25+0.20+0.15+0.10+0.15+0.05 = 0.90，而非 1.00。按 Step 5 字面公式 总分 = Σ(维度得分 × 维度权重)，满分只有 9.000；全部维度拿 8.0 时总分 = 7.2 < 8.0 过不了线，字面达标要求维度均分 ≥ 8.89。技能自带示例（SKILL.md L736~743）即可复现。",
+    "effect_on_this_review": {
+      "literal_formula_total": 7.6,
+      "normalized_total": 8.444,
+      "direction": "两种口径结论相反：字面口径分数未过线，归一化口径已过线。"
+    },
+    "disposition": "按技能字面公式出分，不擅自归一化、不修改技能定义（否则判分标准变成可调参数）；同时如实列出归一化值与分母缺陷。",
+    "does_not_change_verdict": true,
+    "verdict_reason": "B-01 宪法一票否决独立成立，两种口径下本轮都是不通过、不产出锁定件，因此无需需求方为此裁决。",
+    "material_note_for_next_step": "按归一化口径第 2 轮分数已过线 → 补齐宪法后重跑，分数大概率也能过；剩余真实阻塞只有宪法一项。若长期按字面口径执行，本项目的评审线被隐性抬高约 1/0.9 倍。",
+    "fix_options_for_owner": ["补第 7 个 10% 维度", "调高某一维权重使求和为 1.00", "在 Step 5 显式加归一化除数"],
+    "ai_may_not_pick_fix": true,
+    "registered_in": "review_reports/tech_review_discussion.md Step 5 的 S-01 小节"
+  },
+  "weight_sum": 0.9,
+  "react_loop": {
+    "rule": "6.0 ≤ 总分 < 8.0 → 进入 React 修正循环；循环 ≥ 5 → 人工介入",
+    "round_1_total": 6.6,
+    "round_1_total_normalized": 7.333,
+    "round_2_total": 7.6,
+    "round_2_total_normalized": 8.444,
+    "stopped_at_round": 2,
+    "reason_for_stopping": "剩余扣分项全部依赖外部输入（宪法、PRD、量级压测、真实 source 编码与 event_time），Agent 自修只改写措辞、不改变事实。见讨论记录 D-8。",
+    "max_loops_remaining": 3
+  },
+  "constitution_precheck": {
+    "step": "Step 0",
+    "status": "failed",
+    "required_file": ".aisdd/Constitution.md",
+    "exists": false,
+    "verbatim_error": "❌ 未找到项目宪法文档 (.aisdd/Constitution.md)。请先执行 constitution skill 生成项目宪法后再继续。",
+    "veto_effect": "宪法核查有一票否决权：即使 6 个维度全部满分，本轮也不得判定为通过。",
+    "deviation_handling": "需求方显式指令『跑 tech-review 下吧』→ 评审执行完毕并给出意见，但未把用户指令当作前置已通过：Step 0 缺失以 P0 阻塞项 B-01 原样计入结论，且不产出锁定件。见讨论记录 D-1、D-2。",
+    "ai_may_not_author_constitution": true,
+    "ai_may_not_author_constitution_reason": "constitution skill v1.0.0 规定『AI 不得自主生成后直接生效』，且新项目模式必须先多轮提问补齐必填信息；由评审 Agent 代拟宪法再判自己合规，等于把假设洗成项目最高约束。"
+  },
+  "dimensions": {
+    "architecture_consistency": {
+      "name": "架构一致性",
+      "score": 9.0,
+      "round_1_score": 8.0,
+      "weight": 0.25,
+      "weighted": 2.25,
+      "checks": {
+        "ARC-01": { "name": "分层架构遵循", "score": 9.0, "detail": "四模块单向依赖、实体与 Mapper 只在 core、DeviceInfoApplier 为唯一事务入口。扣分项：IM-CORE-007 把 Web 公共件下沉到 core，属可接受，但必须由依赖作用域背书（见 ARC-03）。" },
+        "ARC-02": { "name": "技术栈规范", "score": 9.0, "detail": "未引入新框架；ES / 分库分表 / 时序库 / 调度框架 / CDC 全部显式否决并给出触发引入条件（data-model §10.1~10.3、tech-design §12.4）。第 1 轮唯一瑕疵是 Resilience4j『引入了但没人用它』。" },
+        "ARC-03": { "name": "依赖管理", "score": 9.0, "detail": "第 1 轮 6.0 并查出编译级缺陷 B-02：core 依赖清单写明不引 spring-boot-starter-web，而 IM-CORE-007 在 core 下创建 @RestControllerAdvice / OncePerRequestFilter 等 5 个类，编译期缺 spring-web、spring-webmvc、jakarta.servlet 类型；另 resilience4j 装错模块（装在 ingest，需要弹性的是 openapi）。第 2 轮两处均已修。" }
+      }
+    },
+    "design_reasonableness": {
+      "name": "设计合理性（含数据模型）",
+      "score": 8.5,
+      "round_1_score": 7.5,
+      "weight": 0.20,
+      "weighted": 1.7,
+      "checks": {
+        "DES-01": { "name": "是否过度设计", "score": 8.5, "detail": "第 2 轮的改进方向是删组件（砍掉熔断框架）而非加组件；两层幂等把正确性锚在 DB 唯一索引、Redis 只挡并发，职责不重叠。" },
+        "DES-02": { "name": "设计完整性与自洽", "score": 8.5, "detail": "写侧 R1~R15 规则、17 错误码、对外白名单 15 列与缓存 Value 口径闭合；第 1 轮存在事实性错误（EP-010 声称分区裁剪天然成立）已更正。" },
+        "DES-03": { "name": "选型论证", "score": 8.5, "detail": "每个技术选择给出对比与理由；扣分在于论证依据为仓库规范 + 通用工程结论，无实测数据，技术调研报告仍为待办（§14 R-006）。" }
+      }
+    },
+    "non_functional_reliability": {
+      "name": "非功能与可靠性（安全 40% + 容错 40% + 性能 20%）",
+      "score": 8.0,
+      "round_1_score": 5.5,
+      "weight": 0.15,
+      "weighted": 1.2,
+      "checks": {
+        "NFR-01": { "name": "性能设计", "score": 7.5, "detail": "数字全为假设值但公式与下发键齐备；EXPLAIN 类断言固化为 TC-003-02 / TC-002-01 / TC-002-03。所有 §11 数字不得当承诺指标。" },
+        "NFR-02": { "name": "安全设计", "score": 8.0, "detail": "HMAC 签名串含 method/path/timestamp/bodySha256、±300s 窗口、MessageDigest.isEqual 常数时间比较；第 2 轮补 JWT 只接受 RS256、禁 none 与算法混淆、iss/aud/exp 必校；凭据来源与双 secret 轮换登记 §12.4。缺口：无角色矩阵（附录 E #13，需求未给角色清单，不自造）。" },
+        "NFR-03": { "name": "容错降级", "score": 8.0, "detail": "第 1 轮 5.0 并查出 B-03 口径虚报：503/5030 写成『已熔断』但无熔断器实例与配置键，且【强制】的超时项一个都没登记。第 2 轮裁决本期不引入 Resilience4j，5030 改由『出站调用超时 + 降级仍失败 → fail-fast』产生，登记 Redis 200ms / connect 200ms / MyBatis 2s / Hikari 3s。" }
+      }
+    },
+    "testability_ops": {
+      "name": "可测试性与运维",
+      "score": 8.5,
+      "round_1_score": 8.0,
+      "weight": 0.10,
+      "weighted": 0.85,
+      "checks": {
+        "TST-01": { "name": "可测试性", "score": 7.5, "detail": "依赖注入 + 单一事务入口 + 白名单单一真源便于断言；Testcontainers 真实 MySQL/Kafka，明确禁用 H2（分区、ON UPDATE CURRENT_TIMESTAMP、JSON 表达式默认值、唯一键冲突在 H2 语义不同，会得到『测试通过但生产不成立』的假信号）。" },
+        "TST-02": { "name": "可观测性", "score": 8.5, "detail": "trace_id 三处一致（MDC / 响应头 / 响应体）；指标含 UNAUTHORIZED_SOURCE、dead_letter_total、consume_lag、optimistic_lock_conflict_rate、cache_reconcile_fix，第 2 轮补 cron.run.duration。缺口：本期不引 OpenTelemetry，未登记为承诺。" },
+        "TST-03": { "name": "部署与回滚", "score": 8.5, "detail": "三进程独立可执行 jar；server.shutdown=graceful 且 Kafka 容器早于 DB/Redis 关闭（R15）；回滚预案含『幂等表未清空则外部重推会被当重复丢弃』这条易被忽略的硬约束。" }
+      }
+    },
+    "scalability_evolution": {
+      "name": "扩展性与演进性",
+      "score": 8.0,
+      "round_1_score": 7.5,
+      "weight": 0.15,
+      "weighted": 1.2,
+      "checks": {
+        "EXT-01": { "name": "水平扩展", "score": 8.5, "detail": "应用无状态、Session 走 JWT、定时任务用 Redis CronLock 互斥；扣分：三进程共用一个 MySQL 实例，扩容上限受单实例连接配额约束（data-model §10.4 已列，未量化）。" },
+        "EXT-02": { "name": "技术债务控制", "score": 8.0, "detail": "无 TODO/HACK 残留；已知债务集中在两处待裁决项并登记留痕，未以注释形式散落代码。" },
+        "EXT-03": { "name": "演进路径", "score": 7.5, "detail": "§9.5 与 TD-004 升级路径不改表结构；第 2 轮把 R14 覆盖范围从『动态列名』扩到『动态 SQL 标识符（列名 + 分区名）』，消除后续加运维参数时的数据丢失面。" }
+      }
+    },
+    "cost_assessment": {
+      "name": "成本评估",
+      "score": 8.0,
+      "round_1_score": 7.0,
+      "weight": 0.05,
+      "weighted": 0.4,
+      "checks": {
+        "CST-01": { "name": "资源成本", "score": 8.0, "detail": "单库 + Redis + Kafka，零新增中间件；不引入清单明确省下 1 个中间件 + 1 个框架。" },
+        "CST-02": { "name": "开发成本", "score": 8.0, "detail": "19 个实现单元、四状态维度收口在一个应用器，跨维度组合不新增代码分支。" },
+        "CST-03": { "name": "运维成本", "score": 8.0, "detail": "分区由 DROP PARTITION 秒级清理；扣分：三进程共库需各自连接池配额，须由运维确认实例上限。" }
+      }
+    }
+  },
+  "special_checks": {
+    "circular_dependency": {
+      "status": "passed",
+      "method": "编译期模块依赖边 DFS",
+      "details": "device-ingest / device-openapi / device-admin 均只指向 device-core；core 不依赖任何进程模块，为拓扑源；core 的 spring-boot-starter-web 为 provided，不传递给下游。无直接环、无间接环、接口层无反向回调（写侧唯一入口 DeviceInfoApplier 在 core，进程模块只调不实现）。",
+      "gate": "IM-BUILD-001 Tests 已固化为可执行断言：mvn -q dependency:tree 中 core 不出现三个进程模块，jdeps 无环。",
+      "caveat": "B-02 属另一类编译期缺陷（缺类型，不是环），单列以免『环检测通过 = 依赖治理没问题』的误读。"
+    },
+    "index_analysis": {
+      "status": "passed_with_noted_exception",
+      "method": "8 条核心 SQL 逐条对照索引与分区键",
+      "details": "7 条命中预期索引（uk_sn、uk_source_msg、uk_dim_source、idx_model_code_produce_time、idx_bind_target 前缀、idx_update_time、idx_consume_time）；1 条（EP-010 流水查询）索引命中但无分区裁剪。",
+      "exception": {
+        "id": "EP-010",
+        "sql_shape": "SELECT ... FROM device_info_change_record WHERE sn=? ORDER BY create_time DESC LIMIT ?,?",
+        "finding": "语句不含分区键 create_time 的范围条件，优化器不做分区裁剪；保留期 12 个月即在最坏 12 个分区各做一次 idx_sn_create_time 探查再归并排序。旧表述『按时间倒序天然裁剪到最近分区』不成立，属事实性错误，已更正。",
+        "disposition": "可接受（单 SN 行量有界），若要『只查最近 N 天』必须把 create_time 范围做成必填入参才能触发裁剪 → 登记 tech-design 附录 E #14 待需求方裁决。"
+      }
+    },
+    "security_scan": {
+      "status": "passed_with_noted_exception",
+      "method": "OWASP Top 10",
+      "details": "无 Critical 未处置项。A02 注入 ✅（值一律 #{}，标识符只来自代码常量 + ^p\\d{6}$）；A03 失效的认证/硬编码凭据 ⚠️→✅（JWT 算法约束、凭据来源与双 secret 轮换补齐）；A04 不安全设计 ✅（缺口明示接受并有用例固化）；A01 失效的访问控制 ⚠️（缺角色矩阵，已登记不实现）；A05 安全配置错误 ⚠️（ProblemDetail 与本仓库响应外壳冲突已裁决留痕）。",
+      "exception": {
+        "id": "A01",
+        "finding": "只有认证 + 维度授权两层，无角色矩阵（谁能重放死信、谁能逻辑删），垂直越权实际由『认证即全员可用』承担。",
+        "disposition": "需求方从未给角色清单，自造矩阵等于发明需求里没有的概念 → 登记附录 E #13，落地面仅 JWT claim 解析 + 一处拦截器；不计入阻塞项，但在 NFR-02 扣分。"
+      }
+    }
+  },
+  "blocking_issues": [
+    {
+      "id": "B-01",
+      "category": "合规违规（治理前置）",
+      "severity": "P0",
+      "status": "open",
+      "title": ".aisdd/Constitution.md 不存在 → Step 0 未通过，宪法一票否决",
+      "detail": "即使 6 个维度总分冲到 8.0 以上，只要宪法文件仍不存在，本轮就不可能通过。",
+      "resolution": "不能由 AI 解除。需需求方补宪法（走 constitution skill 的提问—确认流程），或书面豁免 Step 0 并留痕；随后重跑 Step 0。",
+      "resolved_in_round": null
+    },
+    {
+      "id": "B-02",
+      "category": "编译期不可构建（循环依赖同族）",
+      "severity": "P1",
+      "status": "resolved_in_review",
+      "title": "core 依赖清单缺 spring-web/webmvc，IM-CORE-007 的 5 个类无法编译",
+      "resolution": "core 以 provided 作用域引入 spring-boot-starter-web（不传递给 ingest/admin）；新增两条断言：mvn -q -pl device-core compile 通过、provided 不传递。",
+      "landing": ["implementation-map.md IM-BUILD-001（Code targets / Control flow 步 4 / Tests）", "tech-design.md §12.4"]
+    },
+    {
+      "id": "B-03",
+      "category": "核心链路无容错 / 口径虚报",
+      "severity": "P1",
+      "status": "resolved_in_review",
+      "title": "503/5030 依赖一个不存在的熔断组件；【强制】的超时项未登记",
+      "resolution": "本期不引入 Resilience4j；5030 改由『出站调用超时或不可用且降级仍失败 → fail-fast』产生，登记 4 个超时键与读写两侧行为；熔断列入不引入清单并写触发引入条件。",
+      "landing": ["tech-design.md §9.6、§11.1、§11.2 风险 3、§12.4、§13 TC-OPS-02、§14 R-007", "implementation-map.md IM-CORE-005、IM-CORE-007 步 5、IM-OPENAPI-001、IM-BUILD-001 ingest 依赖行", "contracts/api-contract.yaml v1.2.1（只改文案，HTTP 面与字段集合未变）"]
+    },
+    {
+      "id": "B-04",
+      "category": "数据丢失风险",
+      "severity": "P1",
+      "status": "resolved_in_review",
+      "title": "R14 只覆盖动态列名，未覆盖分区名；DROP PARTITION 若接受入参可删掉整月数据且不可恢复",
+      "resolution": "R14 范围扩到『动态 SQL 标识符（列名 + 分区名）』，加三条硬约束：标识符只能来自代码常量、分区名必须匹配 ^p\\d{6}$、EP-008 任务不接受任何外部入参。",
+      "landing": ["tech-design.md §9.3", "implementation-map.md IM-INGEST-004"]
+    },
+    {
+      "id": "B-05",
+      "category": "数据丢失风险",
+      "severity": "P2（曾列阻塞）",
+      "status": "resolved_in_review",
+      "title": "若跳过 mq_consume_record / mq_dead_letter 建表，幂等退化为仅靠 Redis → 回滚吞消息",
+      "resolution": "data-model §9.2 步 4 标注『严禁跳过』并给出校验 SQL。",
+      "landing": ["data-model/data-model.md §9.2、§9.3"]
+    }
+  ],
+  "role_reports": {
+    "architect": {
+      "focus": "分层、模块边界、依赖治理、技术栈对齐",
+      "summary": "四模块单向依赖与写侧收口成立，Web 公共件下沉 core 可接受但必须由依赖作用域背书。第 1 轮查出两处依赖治理缺陷（core 缺 Web 类型、弹性依赖装错模块），第 2 轮均已修正。ARC 8.0 → 9.0。",
+      "findings": [
+        { "id": "B-02", "severity": "P1", "type": "编译期不可构建", "detail": "IM-BUILD-001 给 core 的依赖清单写明不引 spring-boot-starter-web，而 IM-CORE-007 在 core 下创建 GlobalExceptionHandler(@RestControllerAdvice)、TraceIdFilter(OncePerRequestFilter)、ApiEnvelope、ErrorCode、JacksonConfig 五个类，这五个类在 V1.2.0 的 POM 下一个都编不过。", "status": "resolved" },
+        { "id": "ARC-B", "severity": "P1", "type": "依赖装错模块", "detail": "resilience4j-spring-boot3 只装在 device-ingest，而需要弹性降级行为的是 device-openapi 读侧，方向也错。", "status": "resolved", "resolution": "本期不引入该框架，改为超时 + fail-fast。" },
+        { "id": "ARC-C", "severity": "P2", "type": "不引入清单未成文", "detail": "对 ES、分库分表、CDC、调度框架的否决散落在各节，无统一登记表与触发引入条件。", "status": "resolved", "resolution": "新增 tech-design §12.4『第三方依赖登记与不引入清单』（6 行，每行给为何不引入 / 现有替代防线 / 触发引入的条件）。" }
+      ]
+    },
+    "dba": {
+      "focus": "数据模型、索引、分区、SQL 形态",
+      "summary": "5 张表（主档 / 变更流水 / MQ 幂等 / 死信 / 维度授权）范式与索引逐条对应到查询入口；幂等表不分区的理由成立（分区表要求分区键进入每个唯一键，强行分区会让 uk_source_msg 建不出来 → 幂等退化为仅靠 Redis）。查出 1 处事实性错误与 1 处注入面缺口。DES 7.5 → 8.5。",
+      "findings": [
+        { "id": "DBA-A", "severity": "P1", "type": "事实性错误", "detail": "EP-010 流水查询 WHERE sn=? 不含分区键 create_time 的范围条件 → 无分区裁剪；旧表述『分区表按时间倒序天然裁剪』不成立。", "status": "resolved", "resolution": "更正 tech-design §9.1，并在 data-model §8.5 新增风险行；若要限定最近 N 天必须把 create_time 做成必填入参才能触发裁剪 → 附录 E #14。" },
+        { "id": "B-04", "severity": "P1", "type": "数据丢失风险", "detail": "动态 SQL 标识符除列名外还有分区名，EP-008 的 ALTER TABLE ... DROP PARTITION pYYYYMM 由代码拼标识符。", "status": "resolved" },
+        { "id": "DBA-C", "severity": "P2", "type": "唯一键与分区键冲突", "detail": "流水表按月 RANGE(TO_DAYS(create_time)) 分区，主档与幂等表不分区；分区决策、pmax 误删保护均有用例（TC-008-02）。", "status": "no_action" }
+      ]
+    },
+    "security_expert": {
+      "focus": "认证、授权、注入面、凭据管理、OWASP Top 10",
+      "summary": "对外 HMAC 认证设计扎实（签名串含 method/path/timestamp/bodySha256，±300s 防重放，MessageDigest.isEqual 常数时间比较，GET 也计算空体摘要）。第 1 轮两处 Medium 未闭环：JWT 未约束算法（存在 alg:none 与『用 RSA 公钥当 HMAC secret 签 HS256』的算法混淆面）、AppKey Secret 来源与轮换只在实现映射出现而设计文档未登记。第 2 轮均补齐。",
+      "findings": [
+        { "id": "SEC-A", "severity": "Medium", "type": "算法混淆", "detail": "后台只写 JWT，未定算法约束。", "status": "resolved", "resolution": "只接受 RS256；禁 alg:none、禁从 token 头 alg 反推算法；iss/aud/exp 必校；公钥只从 device.admin.jwt.public-key-path 挂载文件读；新增 TC-SEC-03 构造两种攻击 token（错误码沿用既有分配 4010/4011，不新增码）。" },
+        { "id": "SEC-B", "severity": "Medium", "type": "凭据管理", "detail": "AppKey Secret 外部化只在实现映射出现，设计文档未登记来源与轮换；单 secret 会让轮换当天调用方全量 401/4010。", "status": "resolved", "resolution": "§12.4 密钥表 + 配置键 device.openapi.app-secret-path（缺键即拒绝启动，禁止回落 application.yml 明文）+ 文件内 appKey → [当前, 上一版] 双 secret 即轮换窗口；新增 TC-SEC-02 三条断言（仓库无明文、日志与响应不含 secret/X-Signature/JWT 原文、轮换窗口内旧 secret 仍通过）。" },
+        { "id": "SEC-C", "severity": "Low-Medium", "type": "垂直越权", "detail": "无角色矩阵，谁能重放死信 / 谁能逻辑删未定义。", "status": "registered_not_implemented", "resolution": "附录 E #13，需需求方给角色清单后增补；不在本期自造角色。" }
+      ]
+    },
+    "sre": {
+      "focus": "容错降级、可观测性、部署回滚、SLO/SLI",
+      "summary": "第 1 轮最大问题不是缺能力而是口径虚假：把 503/5030 的产生条件写成一个不存在的熔断器，同时规范里【强制】的超时项一个都没登记（熔断只是【推荐】）。第 2 轮按规范强度改成可落地的超时 + fail-fast，并补齐锁 TTL 不变式与守门用例。NFR 5.5 → 8.0，TST 8.0 → 8.5。",
+      "findings": [
+        { "id": "B-03", "severity": "P1", "type": "目标态写成现状", "detail": "无任何熔断器实例与配置键，依赖只装在 ingest，需要降级的是 openapi。", "status": "resolved" },
+        { "id": "SRE-B", "severity": "P1", "type": "不变式无守门", "detail": "G-001 CronLock 无 watchdog 续期，但未写明『单次任务时长必须 < 锁 TTL』，超限即并发重复执行。", "status": "resolved", "resolution": "§5.2 补不变式 + device.cron.lock-safety-margin-ratio=0.2（剩余锁时长低于 TTL × 0.2 主动截断本轮）+ 与 device.cron.lock-ttl-ratio 同一启动断言组 + 指标 cron.run.duration + TC-OPS-03。" },
+        { "id": "SRE-C", "severity": "P2", "type": "SLO 未承诺", "detail": "新鲜度 / 可用性 / 延迟 / 消费健康 / 数据正确性 5 项 SLI 均可测，但目标值全为建议值，且新鲜度对外未承诺（只声明最终一致）。", "status": "open_external_input", "resolution": "需压测与需求方给目标值；未确认数字一律写成 ${key:建议值} 并进入待确认表，不得当承诺。" }
+      ]
+    }
+  },
+  "discussions": [
+    {
+      "id": "D-1",
+      "topic": "Step 0 失败后要不要继续跑完评审",
+      "positions": {
+        "sre": "按技能『终止』，什么都不产出。",
+        "architect": "需求方显式要求『跑 tech-review 下吧』，终止是浪费其一轮时间；折中是跑完但不锁定。"
+      },
+      "resolution": "跑完，判为不通过、不产出锁定件；Step 0 结果以 B-01 原样留痕并写下技能规定的错误原文。",
+      "rationale": "宪法一票否决只禁止『锁定』，不禁止『给出评审意见』；用户指令优先于技能的默认动作，但不得用来消除阻塞项。"
+    },
+    {
+      "id": "D-2",
+      "topic": "能不能由 AI 直接生成一份 Constitution 让评审通过",
+      "positions": {
+        "security_expert": "技术上可以，评审立刻变绿。"
+      },
+      "resolution": "否决。",
+      "rationale": "constitution skill 明确『AI 不得自主生成后直接生效』，且要求先多轮提问补齐必填信息。代拟宪法 = 把 AI 的假设洗成项目最高约束，未来所有 Agent 都会被它误导，比没有宪法更危险。"
+    },
+    {
+      "id": "D-3",
+      "topic": "503 是补熔断框架还是改口径",
+      "positions": {
+        "sre": "补 Resilience4j，行为更强。",
+        "architect": "规范里熔断只是【推荐】，为未验证的量级引入框架属超前设计；openapi 侧超时才是【强制】缺口。",
+        "dba": "熔断器一旦开启读侧会批量返回 503，而真实故障往往是单实例抖动，收益不稳定。"
+      },
+      "resolution": "改口径：不引入熔断框架，登记超时键 + fail-fast；熔断列入不引入清单并写触发引入的条件（实测出现『依赖恢复期反复打穿 DB』）。",
+      "rationale": "本期所有量级都是假设值，弹性策略必须以【强制】项为下限，不替未验证的场景买单。"
+    },
+    {
+      "id": "D-4",
+      "topic": "Web 公共件放哪里（B-02 修法）",
+      "positions": {
+        "architect": "选项 A：下放 openapi/admin 各一份；选项 B：新建第 5 个模块 device-web-common。",
+        "sre": "两份错误码枚举迟早漂移，TC-API-03 的契约 diff 守不住。",
+        "dba": "为 5 个类开一个模块，代价与收益不成比例。"
+      },
+      "resolution": "选项 C（采用）：core 以 provided 作用域引入 spring-boot-starter-web。",
+      "rationale": "同时满足『单一真源』与『不给 ingest 塞内嵌容器』（provided 不传递）；新增 mvn -q -pl device-core compile 断言守住该缺陷复发。"
+    },
+    {
+      "id": "D-5",
+      "topic": "分区名拼接算不算注入面",
+      "positions": {
+        "dba": "分区名由 EP-008 自己生成，不是用户输入，风险低。",
+        "security_expert": "只要接受入参就是阻塞级——DROP PARTITION 传错名字可以删掉整月数据且不可恢复；风险不在『现在有没有入参』，在『以后有人加了运维参数』。"
+      },
+      "resolution": "安全专家胜：R14 范围从『动态列名』扩到『动态 SQL 标识符（列名 + 分区名）』，加三条硬约束。",
+      "rationale": "标识符只能来自代码常量、分区名必须匹配 ^p\\d{6}$、任务不接受任何外部入参；写入 §9.3 与 IM-INGEST-004。"
+    },
+    {
+      "id": "D-6",
+      "topic": "缺角色矩阵算不算本期缺陷",
+      "positions": {
+        "security_expert": "垂直越权无拦截层，应算。",
+        "architect": "需求方从未给角色，自造角色矩阵等于发明需求里没有的概念。"
+      },
+      "resolution": "登记不实现（附录 E #13）。",
+      "rationale": "落地面仅 JWT claim 解析 + 一处拦截器；不计入阻塞项，但在 NFR-02 扣分。"
+    },
+    {
+      "id": "D-7",
+      "topic": "『DDL 不需要迁移』怎么落",
+      "positions": {
+        "architect": "需求方说了就删 Flyway，改人工执行。",
+        "dba": "规范【强制】要求版本化迁移，直接删等于合规倒退。",
+        "sre": "人工执行在生产上更常见，但幂等表与分区预建必须留痕。"
+      },
+      "resolution": "不擅自裁决：本轮只执行『不产出 .sql 文件』这一明确部分；把『是否放弃 Flyway』作为语义歧义登记附录 E #12，在 IM-DB-001 写出两种裁决各自的后继动作。",
+      "rationale": "§12.1 与附录 C 的『版本化交付』表述已从『已落实』降回『未闭环/待裁决』——文档不得把未确认的口径写成现状。"
+    },
+    {
+      "id": "D-8",
+      "topic": "第 2 轮 7.6 还要不要再自修一轮",
+      "positions": {
+        "architect": "React 上限 5 轮，继续修能冲 8.0。",
+        "sre": "剩余扣分项（无 PRD、量级全假设、真实 source 未定、event_time 缺）全部是外部输入，Agent 自修只会改写措辞、不会改变事实。"
+      },
+      "resolution": "停在第 2 轮。",
+      "rationale": "『循环 ≥ 5 才人工介入』是上限而非义务；把不会因自修而变化的四项外部输入写成 §14 R-010 解锁清单，比刷到 8.0 更有价值。"
+    }
+  ],
+  "artifacts": {
+    "reviewed_document": ".aisdd/workspaces/session_20261029_102105/tech-design.md（V1.3.0，评审回写后）",
+    "companion_documents_updated": [
+      ".aisdd/workspaces/session_20261029_102105/data-model/data-model.md → V1.1.2",
+      ".aisdd/workspaces/session_20261029_102105/implementation-map.md（IM-DB-001 改题、IM-BUILD-001/CORE-005/CORE-007/INGEST-004/OPENAPI-001 回写、§0 状态与门禁自检留痕）",
+      ".aisdd/workspaces/session_20261029_102105/contracts/api-contract.yaml → v1.2.1（只改文案：503/5030 产生方式；HTTP 面与字段集合未变）"
+    ],
+    "discussion_record": ".aisdd/workspaces/session_20261029_102105/review_reports/tech_review_discussion.md",
+    "lock_file": null,
+    "lock_file_reason": "技能 Step 8.1 仅在评审通过时生成 tech_design_final.lock.md；本轮 Step 0 P0 + 总分 < 8.0 双重不满足 → 不生成。",
+    "tech_design_versions_json": null,
+    "tech_design_versions_json_reason": "版本锁定文件随锁定件产出；本轮未锁定，故不生成，会话目录内不存在该文件。",
+    "adr_generate": "未触发（技能 Step 9 的前提是 tech_design_final.lock.md 成功生成）"
+  },
+  "unlock_requirements": [
+    { "seq": 1, "input": "项目宪法 .aisdd/Constitution.md（或书面豁免 Step 0 并留痕）", "unblocks": "B-01", "owner": "需求方（唯一路径，AI 不得代拟）", "action": "按 constitution skill 走需求方确认流程；重跑 Step 0" },
+    { "seq": 2, "input": "PRD 或等价需求基线", "unblocks": "FR-001~006 由自拟转正式；提升 DES/NFR 分；解除 R-002", "owner": "需求方", "action": "prd-generate → 重建 FR 映射，升次版本" },
+    { "seq": 3, "input": "量级与 SLA 压测数据", "unblocks": "§11.1 性能参数、§11.4 容量估算、SLO 目标值由假设转承诺", "owner": "需求方 + 运维", "action": "压测后重算，未确认数字保持 ${key:建议值} 形态" },
+    { "seq": 4, "input": "真实 source 编码清单 + 是否存在业务 event_time", "unblocks": "维度授权表初始化数据、乱序判定与新鲜度口径", "owner": "需求方（上游消息生产方）", "action": "提供后回写 data-model §9.1 与消息信封契约" }
+  ],
+  "pending_user_decisions": [
+    { "id": "附录 E #12", "topic": "DDL 交付形态：Flyway 版本化迁移 vs 人工执行已评审全文", "note": "需求方指令『DDL 不需要迁移』本轮只执行为『不产出 .sql 文件』；是否放弃 Flyway 属语义歧义，未擅自裁决。java_springboot §迁移为【强制】条款，选 (b) 需登记豁免理由。" },
+    { "id": "附录 E #13", "topic": "后台角色权限矩阵", "note": "需角色清单后才能增补；本期不自造。" },
+    { "id": "附录 E #14", "topic": "EP-010 流水查询是否强制时间范围", "note": "不加必填入参则无分区裁剪。" },
+    { "id": "附录 E #15", "topic": "503/5030 是否扩到其余对外操作", "note": "契约的 '503' 响应目前只出现在 /api/v1/devices/{sn} 与 /api/v1/devices/batch 两个操作。" }
+  ],
+  "consistency_pass": {
+    "gate_script": ".aisdd/bin/implementation-map-check.js",
+    "gate_command": "node .aisdd/bin/implementation-map-check.js --map .aisdd/workspaces/session_20261029_102105/implementation-map.md",
+    "gate_command_note": "必须用 --map 传参；位置参数会被拼到默认路径后导致 'map not found'。",
+    "gate_result": { "valid": true, "entries": 19, "errors": [], "warnings": [] },
+    "contract_validators": "swagger-cli validate 通过；npx @redocly/cli lint --extends=minimal 通过（OpenAPI 3.1, v1.2.1）",
+    "circuit_breaker_residue_check": "grep -rn 熔断 三份产物 → 剩余命中全为『不引入 / 已更正 / 列入不引入清单』类历史留痕句子，无一处把熔断写成现状。",
+    "cross_doc_checks": [
+      "device.openapi.app-secret-path 在 §11.1 G-002、§12.4 密钥表、IM-OPENAPI-001 三处同串",
+      "超时四键（Redis 200ms / connect 200ms / MyBatis 2s / Hikari 3s）在 §11.1 与 IM-OPENAPI-001 约束行同串",
+      "503/5030 口径在 §9.6、§11.2、TC-API-04、R-007、IM-CORE-005、IM-CORE-007、IM-OPENAPI-001、api-contract v1.2.1 一致（无残留『已熔断』表述）",
+      "G-002 键数 12 → 14，两文档同处计数已同步",
+      "IM-* id 逐个 grep 校验存在（BUILD-001、DB-001、CORE-001~010、INGEST-001~004、OPENAPI-001、ADMIN-001、OPS-001 = 19）",
+      "S-01 权重缺陷在 tech-design §1.2、§14 R-010 处置③A、自检结论 B #2 与评审记录 Step 5 四处同结论（字面 7.600 未过线 / 归一化 8.444 已过线 / 结论不受影响）"
+    ],
+    "aspirational_claims_swept": "5 处（熔断器 fallback、EP-010 分区裁剪、『已按版本化迁移落实』、Constitution『跳过』、503 覆盖范围），另 2 处降为待裁决、1 处为编译缺陷修正",
+    "self-introduced_errors_corrected_this_review": [
+      "评审记录自检行曾写『6 个维度权重求和 = 1.00』——实际为 0.90，未真加过便打了 ✅；已改为如实数字并升级为 S-01 缺陷登记",
+      "评审记录产物表曾写 tech_review.json 的 blocking_issues: [B-01]——实际数组含 5 条（仅 B-01 open）；已按文件真实内容改写"
+    ]
+  },
+  "recommendation": "本轮不锁定。先由需求方给出宪法（或书面豁免）与 4 项外部输入，再重跑 tech-review；在此之前 implementation-map.md 的 status 保持 implementation_ready 但明确标注『设计未锁定』，其 frontmatter 的 tech_design 继续指向 tech-design.md，不改指不存在的锁定件。",
+  "reviewed_at": "2026-10-29T12:20:00+08:00"
+}

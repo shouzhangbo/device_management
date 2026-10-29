@@ -1,0 +1,113 @@
+# device-ingest：写侧进程（EP-006 消费 / EP-007 对账 / EP-008 归档与分区 / EP-012 授权加载）
+#
+# 业务面没有 HTTP 入口：引入 web starter 只为 Actuator 独立管理端口（§Actuator【强制】）。
+# 本文件不含任何密钥：数据库与 Redis 口令走环境变量，缺省值只够本机联调。
+# 所有 device.* / mq.* / archive.* 键都在 tech-design §11.1 与 G-002 表登记过，不在此发明新键。
+spring:
+  application:
+    name: device-ingest
+  main:
+    banner-mode: off
+  lifecycle:
+    # ≥ 重试预算 + 事务超时（1500ms + 3s），给在途消息留出到终态的时间（R15）。
+    timeout-per-shutdown-phase: 35s
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:device_management}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:device}
+    password: ${DB_PASSWORD:}
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 50
+      # 出站调用必须设超时（§九【强制】），连接获取 3s 内拿不到即失败重试。
+      connection-timeout: 3000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # 读写与建连都要有超时：无超时的 Redis 客户端会把消费线程一起拖死。
+      timeout: 200ms
+      connect-timeout: 200ms
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    consumer:
+      group-id: device-management-ingest
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-interval-ms: 300000
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # 必须字节级：解析交给 EnvelopeParser，否则解析失败时死信拿不到原文（R12）。
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        client.id: device-ingest-${HOSTNAME:local}
+server:
+  # 不承载任何业务路由；只为让 management.server.port 能另起一个容器。
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+mybatis:
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # 单条语句 2s 上限（§11.1 读侧依赖超时行），超时即失败而不是排队。
+    default-statement-timeout: 2
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9091}
+  endpoints:
+    web:
+      exposure:
+        # 显式白名单：/env、/configprops、/heapdump 一律不暴露（§Actuator【强制】加固）。
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        # liveness 只看进程自身：外部依赖抖动不能杀进程（否则重启风暴）。
+        liveness:
+          include: ping,diskSpace
+        # readiness 覆盖三个外部依赖：不就绪时把实例摘掉，而不是让它继续拉消息。
+        readiness:
+          include: db,redis,kafka
+logging:
+  structured:
+    format:
+      console: ecs
+device:
+  ingest:
+    concurrency: 3
+    partition: 6
+    max-retry: 3
+    backoff-ms: 50
+    backoff-jitter: 0.2
+    retry-budget-ms: 1500
+    tx-timeout-sec: 3
+    lag-alarm: 10000
+    max-payload-bytes: 262144
+  cache:
+    ttl-base: 1800s
+    ttl-jitter: 300s
+    empty-ttl: 60s
+    rebuild-spin-times: 3
+    reconcile:
+      batch-size: 500
+      cron: "0 */5 * * * ?"
+  query:
+    batch-max: 100
+  cron:
+    lock-ttl-ratio: 0.8
+    lock-safety-margin-ratio: 0.2
+    watermark-ttl-hours: 168
+  archive:
+    cleanup-cron: "0 30 3 * * ?"
+    prebuild-cron: "0 0 4 25 * ?"
+  consume:
+    record-retention-days: 90
+  record:
+    retention-months: 12
+mq:
+  dedup-ttl-hours: 24
+archive:
+  delete:
+    batch-size: 1000

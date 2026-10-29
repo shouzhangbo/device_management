@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 消费幂等记录：重复判定完全交给 uk_source_msg，本文件不提供"先查再插"。 -->
+<mapper namespace="com.example.device.core.mapper.MqConsumeRecordMapper">
+
+  <resultMap id="consumeRecordMap" type="com.example.device.core.entity.MqConsumeRecordDO">
+    <id column="id" property="id"/>
+    <result column="msg_id" property="msgId"/>
+    <result column="source" property="source"/>
+    <result column="biz_type" property="bizType"/>
+    <result column="biz_id" property="bizId"/>
+    <result column="msg_type" property="msgType"/>
+    <result column="topic" property="topic"/>
+    <result column="status" property="status"/>
+    <result column="fail_reason" property="failReason"/>
+    <result column="consume_time" property="consumeTime"/>
+    <result column="update_time" property="updateTime"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.device.core.entity.MqConsumeRecordDO"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO mq_consume_record
+    (msg_id, source, biz_type, biz_id, msg_type, topic, status, fail_reason, consume_time)
+    VALUES
+    (#{msgId}, #{source}, #{bizType}, #{bizId}, #{msgType}, #{topic}, #{status}, #{failReason}, #{consumeTime})
+  </insert>
+
+  <update id="updateStatus">
+    UPDATE mq_consume_record
+    SET status = #{status}, fail_reason = #{failReason}
+    WHERE source = #{source} AND msg_id = #{msgId}
+  </update>
+
+  <!-- 误删保护：删除前先数一遍，把总数打进日志（EP-008 误删保护【强制】）。 -->
+  <select id="countConsumedBefore" resultType="long">
+    SELECT COUNT(*) FROM mq_consume_record WHERE consume_time &lt; #{before}
+  </select>
+
+  <!-- 分批删除：必须带 LIMIT，无 LIMIT 的大删除会长时间持有行锁（EP-008）。 -->
+  <delete id="deleteConsumedBefore">
+    DELETE FROM mq_consume_record
+    WHERE consume_time &lt; #{before}
+    LIMIT #{limit}
+  </delete>
+
+</mapper>

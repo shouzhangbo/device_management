@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 设备变更流水：只增不改。create_time 同时是分区键，插入必须显式带值。 -->
+<mapper namespace="com.example.device.core.mapper.DeviceInfoChangeRecordMapper">
+
+  <resultMap id="changeRecordMap" type="com.example.device.core.entity.DeviceInfoChangeRecordDO">
+    <id column="id" property="id"/>
+    <result column="sn" property="sn"/>
+    <result column="source" property="source"/>
+    <result column="msg_id" property="msgId"/>
+    <result column="msg_type" property="msgType"/>
+    <result column="dim_type" property="dimType"/>
+    <result column="before_json" property="beforeJson"/>
+    <result column="after_json" property="afterJson"/>
+    <result column="result" property="result"/>
+    <result column="op_user" property="opUser"/>
+    <result column="create_time" property="createTime"/>
+    <result column="update_time" property="updateTime"/>
+  </resultMap>
+
+  <sql id="allColumns">
+    id, sn, source, msg_id, msg_type, dim_type, before_json, after_json, result, op_user,
+    create_time, update_time
+  </sql>
+
+  <insert id="insert" parameterType="com.example.device.core.entity.DeviceInfoChangeRecordDO"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO device_info_change_record
+    (sn, source, msg_id, msg_type, dim_type, before_json, after_json, result, op_user, create_time)
+    VALUES
+    (#{sn}, #{source}, #{msgId}, #{msgType}, #{dimType},
+     #{beforeJson}, #{afterJson}, #{result}, #{opUser}, #{createTime})
+  </insert>
+
+  <!-- WHERE 只含 sn 不含分区键，因此没有分区裁剪；靠调用方强制时间范围收窄扫描量（§9.1 纠正）。 -->
+  <select id="selectBySnPaged" resultMap="changeRecordMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info_change_record
+    WHERE sn = #{sn}
+    ORDER BY create_time DESC, id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="countBySn" resultType="long">
+    SELECT COUNT(1) FROM device_info_change_record WHERE sn = #{sn}
+  </select>
+
+  <select id="selectBySnInRange" resultMap="changeRecordMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info_change_record
+    WHERE sn = #{sn}
+      AND create_time &gt;= #{from}
+      <if test="to != null">AND create_time &lt;= #{to}</if>
+    ORDER BY create_time DESC, id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <delete id="deleteBefore">
+    DELETE FROM device_info_change_record
+    WHERE create_time &lt; #{before}
+    LIMIT #{limit}
+  </delete>
+
+</mapper>

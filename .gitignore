@@ -1,0 +1,28 @@
+# 构建产物
+target/
+*.class
+*.jar
+
+# 日志
+*.log
+logs/
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# AI 编码工具的分发生成目录（由 .aisdd 安装器初始化到本地，不入库）
+.cursor/
+.claude/
+.codex/
+.qoder/
+.catpaw/
+
+# 本机运行配置与密钥（只从挂载文件或环境变量读取）
+*.pem
+app-secrets.json
+
+# 安装器本机状态（含本机绝对路径）
+.aisdd/config.json

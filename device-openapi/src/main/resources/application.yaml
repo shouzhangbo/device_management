@@ -1,0 +1,81 @@
+# device-openapi：对外查询进程（EP-001 单查 / EP-002 批量），验签 + 配额限流，只读。
+#
+# 本文件不含任何密钥：
+#   - AppKey Secret 只从挂载文件读取（device.openapi.app-secret-path，取自环境变量）；
+#   - device.openapi.qps-per-app 无默认值：未配置时 QuotaRateLimiter 拒绝启动（§11.1 不变式）。
+spring:
+  application:
+    name: device-openapi
+  main:
+    banner-mode: off
+  lifecycle:
+    # 等当前响应写完再关容器；对外查询无长事务，30s 足够覆盖最慢一次回源。
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:device_management}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:device}
+    password: ${DB_PASSWORD:}
+    hikari:
+      minimum-idle: 10
+      # 读侧是纯 SELECT，连接池按"实例数 × 并发"压住 DB，不允许无界扩张。
+      maximum-pool-size: 50
+      connection-timeout: 3000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # 超时是【强制】项：Redis 慢调用会占满 Tomcat 线程，比慢查询本身更致命。
+      timeout: 200ms
+      connect-timeout: 200ms
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+mybatis:
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # 回源语句 2s 上限：超时即失败（由 DependencyFailureAdvice 转 503/5030），不排队。
+    default-statement-timeout: 2
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        # 进程自身存活：依赖抖动不杀进程，避免重启风暴。
+        liveness:
+          include: ping,diskSpace
+        # 就绪：Redis 或 DB 不可用时不接流量（缓存降级仍依赖 DB）。
+        readiness:
+          include: db,redis
+logging:
+  structured:
+    format:
+      console: ecs
+device:
+  openapi:
+    # 挂载文件路径（无默认值）：文件内为 {"appKey": ["当前secret", "上一版secret"]}
+    app-secret-path: ${DEVICE_OPENAPI_APP_SECRET_PATH}
+    sign-window-seconds: 300
+    # 按调用方配额，无默认值：未配置即拒绝启动，禁止"默认放行"
+    qps-per-app: ${DEVICE_OPENAPI_QPS_PER_APP}
+  cache:
+    ttl-base: 1800s
+    ttl-jitter: 300s
+    empty-ttl: 60s
+    rebuild-spin-times: 3
+  query:
+    batch-max: 100
+  cron:
+    # 本进程不跑定时任务，但 device-core 的启动断言对这两个比例做全进程校验（§11.1），
+    # 缺键会让进程拒绝启动；取值与写侧进程保持一致。
+    lock-ttl-ratio: 0.8
+    lock-safety-margin-ratio: 0.2

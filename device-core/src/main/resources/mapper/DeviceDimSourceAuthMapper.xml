@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 维度授权配置：EP-012 启动全量加载 + 周期刷新，消息热路径不查库。 -->
+<mapper namespace="com.example.device.core.mapper.DeviceDimSourceAuthMapper">
+
+  <resultMap id="dimAuthMap" type="com.example.device.core.entity.DeviceDimSourceAuthDO">
+    <id column="id" property="id"/>
+    <result column="dim_type" property="dimType"/>
+    <result column="source" property="source"/>
+    <result column="enabled" property="enabled"/>
+    <result column="remark" property="remark"/>
+    <result column="create_time" property="createTime"/>
+    <result column="update_time" property="updateTime"/>
+  </resultMap>
+
+  <select id="selectAllEnabled" resultMap="dimAuthMap">
+    SELECT id, dim_type, source, enabled, remark, create_time, update_time
+    FROM device_dim_source_auth
+    WHERE enabled = 1
+  </select>
+
+</mapper>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 死信归档：列表不取 content，详情才取（响应体积红线）。 -->
+<mapper namespace="com.example.device.core.mapper.MqDeadLetterMapper">
+
+  <resultMap id="deadLetterMap" type="com.example.device.core.entity.MqDeadLetterDO">
+    <id column="id" property="id"/>
+    <result column="msg_id" property="msgId"/>
+    <result column="source" property="source"/>
+    <result column="topic" property="topic"/>
+    <result column="consumer_group" property="consumerGroup"/>
+    <result column="partition_no" property="partitionNo"/>
+    <result column="offset_no" property="offsetNo"/>
+    <result column="msg_key" property="msgKey"/>
+    <result column="content" property="content"/>
+    <result column="fail_reason" property="failReason"/>
+    <result column="retry_count" property="retryCount"/>
+    <result column="status" property="status"/>
+    <result column="handle_user" property="handleUser"/>
+    <result column="handle_time" property="handleTime"/>
+    <result column="create_time" property="createTime"/>
+    <result column="update_time" property="updateTime"/>
+  </resultMap>
+
+  <sql id="listColumns">
+    id, msg_id, source, topic, consumer_group, partition_no, offset_no, msg_key,
+    fail_reason, retry_count, status, handle_user, handle_time, create_time
+  </sql>
+
+  <insert id="insert" parameterType="com.example.device.core.entity.MqDeadLetterDO"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO mq_dead_letter
+    (msg_id, source, topic, consumer_group, partition_no, offset_no, msg_key, content,
+     fail_reason, retry_count, status)
+    VALUES
+    (#{msgId}, #{source}, #{topic}, #{consumerGroup}, #{partitionNo}, #{offsetNo}, #{msgKey}, #{content},
+     #{failReason}, #{retryCount}, #{status})
+  </insert>
+
+  <select id="selectPaged" resultMap="deadLetterMap">
+    SELECT <include refid="listColumns"/>
+    FROM mq_dead_letter
+    <where>
+      <if test="status != null">AND status = #{status}</if>
+      <if test="source != null">AND source = #{source}</if>
+    </where>
+    ORDER BY id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="countByStatus" resultType="long">
+    SELECT COUNT(1) FROM mq_dead_letter
+    <where>
+      <if test="status != null">AND status = #{status}</if>
+      <if test="source != null">AND source = #{source}</if>
+    </where>
+  </select>
+
+  <select id="countPending" resultType="long">
+    SELECT COUNT(1) FROM mq_dead_letter WHERE status = 0
+  </select>
+
+  <select id="selectById" resultMap="deadLetterMap">
+    SELECT <include refid="listColumns"/>, content
+    FROM mq_dead_letter
+    WHERE id = #{id}
+  </select>
+
+  <!-- 状态必须作为 WHERE 条件：两个运维同时点重放时只允许一个成功（EP-011）。 -->
+  <update id="casUpdateStatus">
+    UPDATE mq_dead_letter
+    SET status = #{to}, handle_user = #{handleUser}, handle_time = #{handleTime}
+    WHERE id = #{id} AND status = #{from}
+  </update>
+
+</mapper>

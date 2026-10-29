@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 分区运维 DDL：表名是常量，分区名与边界由调用方按正则校验后以 ${} 拼接（R14）。 -->
+<mapper namespace="com.example.device.core.mapper.DeviceInfoPartitionMapper">
+
+  <select id="listPartitions" resultType="java.lang.String">
+    SELECT PARTITION_NAME
+      FROM information_schema.PARTITIONS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'device_info_change_record'
+       AND PARTITION_NAME IS NOT NULL
+     ORDER BY PARTITION_ORDINAL_POSITION
+  </select>
+
+  <select id="countRowsIn" resultType="long">
+    SELECT COUNT(*) FROM device_info_change_record PARTITION (${partition})
+  </select>
+
+  <update id="reorganizeAddPartition">
+    ALTER TABLE device_info_change_record REORGANIZE PARTITION pmax INTO (
+      PARTITION ${partition} VALUES LESS THAN (TO_DAYS('${boundary}')),
+      PARTITION pmax VALUES LESS THAN MAXVALUE
+    )
+  </update>
+
+  <update id="dropPartition">
+    ALTER TABLE device_info_change_record DROP PARTITION ${partition}
+  </update>
+
+</mapper>

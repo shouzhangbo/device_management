@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  设备主档 SQL。全文档唯一允许 ${} 出现在列标识符位置的地方是 updateDimCas，
+  且其取值只能来自 DimSpec 白名单常量（ColumnBinding 构造时已断言标识符形状）——见 tech-design R14。
+-->
+<mapper namespace="com.example.device.core.mapper.DeviceInfoMapper">
+
+  <resultMap id="deviceInfoMap" type="com.example.device.core.entity.DeviceInfoDO">
+    <id column="id" property="id"/>
+    <result column="sn" property="sn"/>
+    <result column="model_code" property="modelCode"/>
+    <result column="model_name" property="modelName"/>
+    <result column="factory_code" property="factoryCode"/>
+    <result column="factory_name" property="factoryName"/>
+    <result column="produce_time" property="produceTime"/>
+    <result column="register_status" property="registerStatus"/>
+    <result column="online_status" property="onlineStatus"/>
+    <result column="bind_status" property="bindStatus"/>
+    <result column="bind_target" property="bindTarget"/>
+    <result column="bind_time" property="bindTime"/>
+    <result column="recover_status" property="recoverStatus"/>
+    <result column="scrap_time" property="scrapTime"/>
+    <result column="remark" property="remark"/>
+    <result column="image_url" property="imageUrl"/>
+    <result column="maintain_user" property="maintainUser"/>
+    <result column="maintain_time" property="maintainTime"/>
+    <result column="ext_json" property="extJson"/>
+    <result column="version" property="version"/>
+    <result column="deleted" property="deleted"/>
+    <result column="create_time" property="createTime"/>
+    <result column="update_time" property="updateTime"/>
+  </resultMap>
+
+  <sql id="allColumns">
+    id, sn, model_code, model_name, factory_code, factory_name, produce_time, register_status,
+    online_status, bind_status, bind_target, bind_time, recover_status, scrap_time, remark,
+    image_url, maintain_user, maintain_time, ext_json, version, deleted, create_time, update_time
+  </sql>
+
+  <!-- 维度列 CAS：WHERE 不带 deleted 过滤，已逻辑删除的设备仍接受外部维度更新（R6）。 -->
+  <update id="updateDimCas">
+    UPDATE device_info
+    <set>
+      <if test="columns != null and columns.size() &gt; 0">
+        <foreach collection="columns" item="c" separator=",">${c.column} = #{c.value}</foreach>,
+      </if>
+      version = version + 1
+    </set>
+    WHERE sn = #{sn} AND version = #{version}
+  </update>
+
+  <!-- 逻辑删除不属于任何维度，是白名单之外唯一的写入口；deleted=0 进 WHERE 让重复删除返回 0 行。 -->
+  <update id="markDeletedCas">
+    UPDATE device_info
+    SET deleted = 1, version = version + 1
+    WHERE sn = #{sn} AND version = #{version} AND deleted = 0
+  </update>
+
+  <insert id="insert" parameterType="com.example.device.core.entity.DeviceInfoDO"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO device_info
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      sn,
+      <if test="modelCode != null">model_code,</if>
+      <if test="modelName != null">model_name,</if>
+      <if test="factoryCode != null">factory_code,</if>
+      <if test="factoryName != null">factory_name,</if>
+      <if test="produceTime != null">produce_time,</if>
+      <if test="registerStatus != null">register_status,</if>
+      <if test="onlineStatus != null">online_status,</if>
+      <if test="bindStatus != null">bind_status,</if>
+      <if test="bindTarget != null">bind_target,</if>
+      <if test="bindTime != null">bind_time,</if>
+      <if test="recoverStatus != null">recover_status,</if>
+      <if test="scrapTime != null">scrap_time,</if>
+      <if test="remark != null">remark,</if>
+      <if test="imageUrl != null">image_url,</if>
+      <if test="maintainUser != null">maintain_user,</if>
+      <if test="maintainTime != null">maintain_time,</if>
+      <if test="extJson != null">ext_json,</if>
+    </trim>
+    <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+      #{sn},
+      <if test="modelCode != null">#{modelCode},</if>
+      <if test="modelName != null">#{modelName},</if>
+      <if test="factoryCode != null">#{factoryCode},</if>
+      <if test="factoryName != null">#{factoryName},</if>
+      <if test="produceTime != null">#{produceTime},</if>
+      <if test="registerStatus != null">#{registerStatus},</if>
+      <if test="onlineStatus != null">#{onlineStatus},</if>
+      <if test="bindStatus != null">#{bindStatus},</if>
+      <if test="bindTarget != null">#{bindTarget},</if>
+      <if test="bindTime != null">#{bindTime},</if>
+      <if test="recoverStatus != null">#{recoverStatus},</if>
+      <if test="scrapTime != null">#{scrapTime},</if>
+      <if test="remark != null">#{remark},</if>
+      <if test="imageUrl != null">#{imageUrl},</if>
+      <if test="maintainUser != null">#{maintainUser},</if>
+      <if test="maintainTime != null">#{maintainTime},</if>
+      <if test="extJson != null">#{extJson},</if>
+    </trim>
+  </insert>
+
+  <!-- 消费与后台读取：不过滤 deleted，消费侧必须能更新已删行（R6）。 -->
+  <select id="selectBySn" resultMap="deviceInfoMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info
+    WHERE sn = #{sn}
+  </select>
+
+  <!-- 缓存回源：已逻辑删除视为不存在，与"从未存在"同样写哨兵，不对外区分两种状态。 -->
+  <select id="selectBySnVisible" resultMap="deviceInfoMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info
+    WHERE sn = #{sn} AND deleted = 0
+  </select>
+
+  <select id="selectBySnList" resultMap="deviceInfoMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info
+    WHERE deleted = 0
+      AND sn IN
+    <foreach collection="sns" item="item" open="(" separator="," close=")">#{item}</foreach>
+  </select>
+
+  <!-- EP-007 对账：走 idx_update_time，水位由调用方持久化，本查询只负责增量取数。 -->
+  <select id="selectUpdatedAfter" resultMap="deviceInfoMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info
+    WHERE update_time &gt; #{after}
+    ORDER BY update_time ASC
+    LIMIT #{limit}
+  </select>
+
+  <sql id="adminWhere">
+    <where>
+      <if test="sn != null and sn != ''">AND sn = #{sn}</if>
+      <if test="snPrefix != null and snPrefix != ''">AND sn LIKE CONCAT(#{snPrefix}, '%')</if>
+      <if test="modelCode != null and modelCode != ''">AND model_code = #{modelCode}</if>
+      <if test="onlineStatus != null">AND online_status = #{onlineStatus}</if>
+      <if test="produceTimeStart != null">AND produce_time &gt;= #{produceTimeStart}</if>
+      <if test="produceTimeEnd != null">AND produce_time &lt;= #{produceTimeEnd}</if>
+      <if test="!includeDeleted">AND deleted = 0</if>
+    </where>
+  </sql>
+
+  <select id="selectAdminPage" resultMap="deviceInfoMap">
+    SELECT <include refid="allColumns"/>
+    FROM device_info
+    <include refid="adminWhere"/>
+    ORDER BY id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="countAdminPage" resultType="long">
+    SELECT COUNT(1)
+    FROM device_info
+    <include refid="adminWhere"/>
+  </select>
+
+</mapper>

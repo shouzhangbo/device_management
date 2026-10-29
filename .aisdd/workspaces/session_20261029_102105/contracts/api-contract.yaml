@@ -1,0 +1,1721 @@
+openapi: 3.1.0
+info:
+  title: 设备管理后端 API（充电宝设备）
+  version: 1.2.1
+  description: |
+    与 `tech-design.md` V1.3.0 §5.2 / §9.6 一一对应的 HTTP 契约。
+    V1.2.0 只改文末 `x-internal-entries` 的 EP-007/EP-008 登记（补定时任务跨实例互斥锁，见设计 §5.2 G-001）。
+    **V1.2.1 只改文案**：`503/5030` 的产生方式由"依赖不可用且已熔断"改为"依赖调用超时或不可用且降级仍失败（fail-fast）"——
+    本期不引入熔断框架（`tech-design` §12.4 不引入清单），错误码数值、`enum` 集合与语义均未变。
+    **HTTP 面（路径 / 方法 / 状态码 / schema）与 1.1.0 完全一致**，调用方无需改动。
+
+    **本系统的定位是"镜像层"**：设备出厂注册、在线状态、绑定、回收/报废等事实全部由外部系统经
+    Kafka 推送（EP-006，非 HTTP 入口，见文末 `x-kafka-message-contracts`），本系统只负责
+    落得准（幂等 + 事务）、读得快（Redis 缓存）、追得到（变更流水）。
+
+    **一致性口径（调用方必读）**：对外查询是**最终一致**，脏读窗口 ≤ 对账周期
+    （`${device.cache.reconcile.cron}`，建议 5 分钟）。需要强一致的调用方必须改走 DB 回源接口，
+    本期不提供。
+
+    **响应外壳**：所有 JSON 响应为 `{code, message, data, trace_id}`（HTTP 规范 §4.1/§5.1【强制】）。
+    HTTP status 表达传输层结果，`code` 表达业务层结果，`code` 前 3 位对齐 HTTP status。
+    唯一例外：`DELETE` 成功返回 `204` **无响应体**（HTTP 规范 §3.2 与 §4.1 的交汇点，见 §9.6）。
+
+    **trace_id**：入站带 `X-Trace-Id` 则沿用，否则服务端生成；同时写入响应头 `X-Trace-Id` 与
+    响应体 `trace_id`，两者恒等；成功与错误响应都返回。
+
+    **时间**：一律 ISO 8601 字符串带时区（HTTP 规范 §4.3）。DB 用哨兵 `1970-01-01 00:00:00`
+    表达"该时间未同步"，**出口转为 `null`**，哨兵值不会出现在响应里。
+
+    **不返回的字段**：`id`、`version`、`deleted`、`create_time`、`update_time`、`maintain_user`、
+    `maintain_time`、`ext_json`（对外接口 EP-001/EP-002）。后台接口另见 `DeviceAdminItem`。
+  x-maintainer: 技术设计与契约由 AI Agent 依据 2026-10-29 需求方口述产出；无 PRD（见 tech-design §1.1 偏差声明）
+  x-related-docs:
+    tech-design: ../tech-design.md
+    data-model: ../data-model/data-model.md
+    rules:
+      - ../../../rules/http_restful_specification.md
+      - ../../../rules/redis_specification.md
+      - ../../../rules/mq_specification.md
+      - ../../../rules/mysql_specification.md
+  x-open-questions:
+    id: 未定项清单（不得当作已确认事实，与 tech-design 附录 E 同源）
+    items:
+      - "批量上限 device.query.batch-max 建议 100，待确认"
+      - "各维度权威 source 编码为占位值，待需求方确认（决定 EP-006 是否被静默拒）"
+      - "后台可写维度范围当前默认 PROFILE + MAINTAIN"
+      - "错误响应体形态存在规范间冲突：Spring Boot 规范要求 RFC 7807 ProblemDetail，HTTP 规范要求本外壳；本契约按 HTTP 规范"
+      - "量级与 SLA 未确认，限流配额与 P99 目标均为假设值"
+
+servers:
+  - url: https://{host}
+    description: 对外只读服务（device-openapi）与后台服务（device-admin）按网关路由拆分；`{host}` 建议对外与后台分域，以便独立限流与独立鉴权
+    variables:
+      host:
+        default: api.example.com
+
+tags:
+  - name: device-query
+    description: 对外设备信息查询（EP-001 / EP-002），AppKey 签名鉴权，按 AppKey 配额限流
+  - name: device-admin
+    description: 运营后台设备维护（EP-003 / EP-004 / EP-005 / EP-009 / EP-010），JWT 鉴权
+  - name: mq-ops
+    description: 死信运维入口（EP-011），MQ 规范 §3.3【强制】要求可查询、可重放、有管理入口
+  - name: probe
+    description: 存活与就绪探针（EP-013），Actuator 独立端口，不属本契约的业务鉴权面
+
+security:
+  - AppKeyHmac: []
+
+paths:
+  /api/v1/devices/{sn}:
+    get:
+      tags: [device-query]
+      operationId: getDeviceBySn
+      summary: 查询单个设备信息（EP-001）
+      description: |
+        读路径：`GET device:cache:info:{sn}` → 命中 `__EMPTY__` 哨兵直接 404（穿透防护，不回源）
+        → miss 时抢 `device:lock:cache:rebuild:{sn}` 互斥重建 → 回源 `SELECT` 白名单列 → 回填带抖动 TTL。
+
+        命中路径不产生 SQL。逻辑删除（`deleted=1`）的设备一律按"不存在"处理。
+      security:
+        - AppKeyHmac: []
+      parameters:
+        - $ref: '#/components/parameters/Sn'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Device'
+              example:
+                code: 0
+                message: success
+                data:
+                  sn: PB2026102900001
+                  model_code: PB-10K-2026A
+                  model_name: 20000mAh 双口快充
+                  factory_code: F-DG-01
+                  factory_name: 东莞一厂
+                  produce_time: '2026-08-11T10:30:00+08:00'
+                  register_status: 1
+                  online_status: 1
+                  bind_status: 1
+                  bind_target: STORE-8823
+                  bind_time: '2026-09-02T14:05:00+08:00'
+                  recover_status: 0
+                  scrap_time: null
+                  remark: ''
+                  image_url: https://cdn.example.com/device/pb-10k-2026a.png
+                trace_id: 01J8Z3X4Y5Z6A7B8C9D0E1F2G3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 设备不存在或已逻辑删除
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4040
+                message: device not found
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+
+  /api/v1/devices/batch:
+    post:
+      tags: [device-query]
+      operationId: batchGetDevices
+      summary: 批量查询设备信息（EP-002）
+      description: |
+        **方法语义的有意偏离**：单次最多 `${device.query.batch-max:100}` 个 SN 无法放进 GET 的
+        URL（长度与缓存代理限制），因此用 `POST` 承载只读批量查询。约束（tech-design §5.2 EP-002）：
+        ① 服务端只读，实现上禁止走写路径；② 同 body 重放结果一致（幂等）；③ 同样计入 AppKey 配额，
+        不得用于绕过限流。
+
+        实现约束：一次 `MGET`（禁循环 `GET`）；miss 部分一次 `WHERE sn IN (...) AND deleted=0`
+        （禁 N+1）；回填用 `Pipeline`。`missing` 是 `items` 中 `found=false` 的 SN 摘要，
+        由同一次装配产出，**不是第二份判定结果**。
+
+        只走缓存与主档：不做筛选、不排序、不分页。
+      security:
+        - AppKeyHmac: []
+      parameters:
+        - $ref: '#/components/parameters/TraceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchQueryRequest'
+            example:
+              sns:
+                - PB2026102900001
+                - PB2026102900002
+      responses:
+        '200':
+          description: |
+            查询成功。**部分命中仍返回 200**：不存在的 SN 在 `items[].found=false` 与
+            `missing[]` 中标出，不使用 404（404 只属于 EP-001 的单点语义）。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BatchQueryData'
+              example:
+                code: 0
+                message: success
+                data:
+                  items:
+                    - sn: PB2026102900001
+                      found: true
+                      info:
+                        sn: PB2026102900001
+                        model_code: PB-10K-2026A
+                        model_name: 20000mAh 双口快充
+                        factory_code: F-DG-01
+                        factory_name: 东莞一厂
+                        produce_time: '2026-08-11T10:30:00+08:00'
+                        register_status: 1
+                        online_status: 1
+                        bind_status: 0
+                        bind_target: ''
+                        bind_time: null
+                        recover_status: 0
+                        scrap_time: null
+                        remark: ''
+                        image_url: ''
+                    - sn: PB2026102900002
+                      found: false
+                      info: null
+                  missing:
+                    - PB2026102900002
+                trace_id: 01J8Z3X4Y5Z6A7B8C9D0E1F2G3
+        '400':
+          description: |
+            `4001` 参数缺失（`sns` 为空）/ `4002` 格式错误（元素非字符串、含空白 SN）/
+            `4003` 条数超上限（**整体拒绝，不拆分、不截断**）。
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                overLimit:
+                  value:
+                    code: 4003
+                    message: batch size exceeds limit
+                    data: null
+                    trace_id: c0a8ab121729876543210abc
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+
+  /api/v1/admin/devices:
+    get:
+      tags: [device-admin]
+      operationId: pageDevices
+      summary: 设备列表分页查询（EP-003）
+      description: |
+        **必须至少带一个高区分度筛选条件**（`sn` / `sn_prefix` / `model_code` / 生产时间范围），
+        无条件全量翻页返回 `400/4004` —— 这不是接口洁癖：主档虽只有 10 万行，但无条件翻页会
+        诱发 `%kw%` 全表扫描，而 MySQL 规范 §1.2【强制】禁左模糊/全模糊。
+
+        `sn_prefix` 走 `uk_sn` 前缀匹配（右模糊）。深翻页上限 `${device.admin.max-offset:10000}`，
+        超出返回 `400/4002`。
+
+        后台列表项**含 `version`**（编辑时乐观锁需要），与对外白名单不同。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: sn
+          in: query
+          required: false
+          description: 精确匹配（等值，选择性最高）
+          schema:
+            type: string
+            maxLength: 64
+            examples:
+              - PB2026102900001
+        - name: sn_prefix
+          in: query
+          required: false
+          description: 右模糊前缀（`LIKE 'prefix%'`）；禁止左模糊与全模糊
+          schema:
+            type: string
+            maxLength: 64
+            examples:
+              - PB2026
+        - name: model_code
+          in: query
+          required: false
+          description: 型号编码，与 `produce_time_*` 组合走 `idx_model_code_produce_time`
+          schema:
+            type: string
+            maxLength: 64
+        - name: online_status
+          in: query
+          required: false
+          description: |
+            在线状态。**低区分度列，无独立索引**：单独使用它仍属"缺少必要筛选条件"，
+            必须与上面的高区分度条件组合。
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            description: 0-未知 1-在线 2-离线
+        - name: produce_time_start
+          in: query
+          required: false
+          description: 生产时间起（含）；未同步的哨兵时间不参与该筛选
+          schema: &dateTimeString
+            type: string
+            format: date-time
+            examples:
+              - '2026-08-01T00:00:00+08:00'
+        - name: produce_time_end
+          in: query
+          required: false
+          description: 生产时间止（含）
+          schema: *dateTimeString
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 查询成功（无匹配记录返回空 `items` + `total=0`，不是 404）
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              items:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/DeviceAdminItem'
+        '400':
+          description: |
+            `4002` 参数格式错误 / 深翻页超上限 / `4004` 缺少必要筛选条件。
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4004
+                message: at least one selective filter is required
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [device-admin]
+      operationId: createDevice
+      summary: 新增设备主档（EP-004）
+      description: |
+        **入参边界（严格）**：只接受 `sn` + PROFILE 列（`model_code/model_name/remark/image_url`）。
+        状态列与时间列**不接受入参**，由服务端固定：
+        `register_status=0, online_status=0, bind_status=0, recover_status=0, deleted=0, version=0`，
+        `produce_time / bind_time / scrap_time` 写哨兵（出口为 `null`）。
+        `maintain_user / maintain_time` 由服务端按当前登录人写入。
+
+        多带字段一律 `400/4002`（不接受外部维度入参，否则后台会与外部权威源争同一列，
+        破坏"每个维度有且仅有一个权威源"这条防线）。
+
+        成功后**必须 `DEL device:cache:info:{sn}`**：该 key 可能存有 `__EMPTY__` 空值哨兵
+        （此前查过这个不存在的 SN），不清掉会让新建设备最长 60s 对外 404。
+
+        全量存量建档**不走本接口**，走 EP-006 的 `FACTORY_REGISTER` 消息路径
+        （两套写入路径必然漂移，见 data-model §9.1）。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreateCommand'
+            example:
+              sn: PB2026102900001
+              model_code: PB-10K-2026A
+              model_name: 20000mAh 双口快充
+              remark: 首批样机
+              image_url: https://cdn.example.com/device/pb-10k-2026a.png
+      responses:
+        '201':
+          description: 创建成功（HTTP 规范 §3.2 精确状态码）
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [sn, version]
+                        properties:
+                          sn:
+                            type: string
+                            examples:
+                              - PB2026102900001
+                          version:
+                            type: integer
+                            description: 恒为 0（初始版本），供随后 PUT 的 CAS 入参
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: |
+            `4090` SN 已存在（命中 `uk_sn`）。
+            **注意 `Idempotency-Key` 与 `uk_sn` 是两层不同的东西**：前者防同一请求重复提交
+            （同 Key 重放返回首次结果），后者防两个不同请求创建同一 SN。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4090
+                message: device sn already exists
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/devices/{sn}:
+    put:
+      tags: [device-admin]
+      operationId: updateDeviceProfile
+      summary: 更新设备档案（PROFILE 维度，EP-005）
+      description: |
+        全量替换 **PROFILE 维度**的列（`model_code/model_name/remark/image_url`），
+        其余维度列不受影响 —— 由 `DimSpec` 动态列 `<set>` 保证，禁止全字段覆盖（tech-design R10）。
+        `MAINTAIN` 维度（`maintain_user/maintain_time`）与 PROFILE 同属一次 CAS、由服务端自动写入。
+
+        冲突处理：影响行数 0 → `409/4091`"数据已被外部更新，请刷新后重试"，
+        **服务端不静默重试**（后台编辑与外部推送争同一行时，让运营看到最新值比自动覆盖更安全）。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/Sn'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceProfileUpdateCommand'
+      responses:
+        '200':
+          description: 更新成功，返回新 `version` 供连续编辑
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [version]
+                        properties:
+                          version:
+                            type: integer
+                            description: CAS 成功后的新版本号
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            `4030` 无权限 / `4031` 该维度未授权本来源写入
+            （后台想写 ONLINE 等外部维度时，`device_dim_source_auth` 未放开）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4031
+                message: dimension not authorized for this source
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '404':
+          description: 设备不存在或已逻辑删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4040
+                message: device not found
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: '`4091` 版本冲突，需刷新后重试（无静默重试）'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4091
+                message: version conflict, refresh and retry
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [device-admin]
+      operationId: deleteDevice
+      summary: 逻辑删除设备（EP-009）
+      description: |
+        置 `deleted=1` + `version` CAS + 删缓存 + 写一条流水（`source=ADMIN`，
+        `msg_id` 为本地生成的操作号 `ADM-<uuid>`）。
+
+        **重复删除返回 404 而非静默 204**：幂等语义由 `version` 条件更新保证
+        —— 已删除的设备对调用方而言就是"不存在"，把第二次删除报成成功会掩盖前一次已生效的事实。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/Sn'
+        - name: version
+          in: query
+          required: true
+          description: 乐观锁版本（取自 EP-003 列表项）；不匹配 → `409/4091`
+          schema:
+            type: integer
+            minimum: 0
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '204':
+          description: |
+            删除成功，**无响应体**（HTTP 规范 §3.2；统一外壳 §4.1 的唯一例外，因为 204 本就不允许 body）。
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 设备不存在，或已被逻辑删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 4040
+                message: device not found
+                data: null
+                trace_id: c0a8ab121729876543210abc
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: '`4091` 版本冲突'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/devices/{sn}/change-records:
+    get:
+      tags: [device-admin]
+      operationId: pageDeviceChangeRecords
+      summary: 设备变更流水查询（EP-010）
+      description: |
+        读 `device_info_change_record`，`ORDER BY create_time DESC`，走 `idx_sn_create_time`
+        （按月分区，倒序天然裁剪到最近分区）。
+
+        **404 语义**：仅当 `sn` 不存在或已逻辑删除时返回 `404/4040`；
+        设备存在但无流水返回 `200` + 空 `items` —— 避免"查不到设备"与"没有记录"混淆。
+
+        `result` 编码**故意不含"重复"与"版本冲突"**：重复消息在唯一键冲突时整事务回滚、
+        版本冲突触发回滚重试，两者都不产生流水（分别由 `mq_consume_record` 与死信表/指标承载）。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/Sn'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              items:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/ChangeRecordItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 设备不存在或已逻辑删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/mq/dead-letters:
+    get:
+      tags: [mq-ops]
+      operationId: pageDeadLetters
+      summary: 死信列表查询（EP-011）
+      description: |
+        MQ 规范 §3.3【强制】：死信必须可查询、可重放、有管理入口。
+
+        **列表不含 `content`**（原始消息体可达数百 KB，列表全带会打爆响应包）；
+        需要原文走 `GET /api/v1/admin/mq/dead-letters/{id}`。
+
+        死信持续增长本身就是异常信号（不是需要扩容的正常负载），应配置告警而非默默清理。
+      security:
+        - AdminJwt: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: 处理状态筛选；运维巡检默认 `0`（待处理）
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+            description: 0-待处理 1-已重放 2-已丢弃
+        - name: source
+          in: query
+          required: false
+          description: 按来源筛选（走 `idx_source_create_time` 之外的扫描，建议与 status 组合）
+          schema:
+            type: string
+            maxLength: 64
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 查询成功
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              items:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/DeadLetterItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/mq/dead-letters/{id}:
+    get:
+      tags: [mq-ops]
+      operationId: getDeadLetter
+      summary: 死信详情（含原始消息体，EP-011）
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/DeadLetterId'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 查询成功，额外返回 `content`
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DeadLetterDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 死信记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/mq/dead-letters/{id}/replay:
+    post:
+      tags: [mq-ops]
+      operationId: replayDeadLetter
+      summary: 重放死信（EP-011）
+      description: |
+        重放**复用同一 `DeviceInfoApplier`**，因此受同一套幂等与授权约束。由此产生两条
+        必须区分的错误（否则运维无法判断"到底该不该重试"）：
+        - `409/4092`：该 `(source, msg_id)` 已在 `mq_consume_record` 成功记录过 —— 重放被唯一索引挡下，
+          **数据没有被改写，也不需要再重放**；
+        - `409/4093`：该死信记录 `status` 已是 1（已重放）或 2（已丢弃）—— 状态机不允许再次处理。
+
+        成功后写 `handle_user / handle_time`，`status=1`。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/DeadLetterId'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      responses:
+        '200':
+          description: 重放成功，消息已按 EP-006 同一链路落地
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            format: int64
+                          status:
+                            type: integer
+                            description: 恒为 1（已重放）
+                          apply_result:
+                            type: string
+                            enum: [SUCCESS, DEVICE_NOT_FOUND, UNAUTHORIZED_SOURCE]
+                            description: |
+                              `SUCCESS` 主档已更新；`DEVICE_NOT_FOUND` 流水记 `result=3`；
+                              `UNAUTHORIZED_SOURCE` 流水记 `result=4`。后两者仍算"重放动作已完成"
+                              （留痕即目的），不代表要再重试。
+                          record_result:
+                            type: integer
+                            description: 落流水的 `result` 值（1/3/4），编码见 data-model 附录 B
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            `4030` 无权限 / `4031` 该维度未授权（重放时授权表仍拒绝该 source，
+            需先修配置再重放；配置刷新周期 `${device.dim.auth-refresh-seconds:60}`）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 死信记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: '`4092` 遇幂等冲突（该 `msg_id` 已消费过）/ `4093` 已处理不可重放'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                idempotentConflict:
+                  value:
+                    code: 4092
+                    message: message already consumed, replay skipped
+                    data: null
+                    trace_id: c0a8ab121729876543210abc
+                alreadyHandled:
+                  value:
+                    code: 4093
+                    message: dead letter already replayed or discarded
+                    data: null
+                    trace_id: c0a8ab121729876543210abc
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/mq/dead-letters/{id}/discard:
+    post:
+      tags: [mq-ops]
+      operationId: discardDeadLetter
+      summary: 丢弃死信（EP-011）
+      description: |
+        置 `status=2` 并写 `handle_user/handle_time`。**丢弃是不可逆的业务裁决**：
+        消息内容仍留在表里可查证，但不会再被重放，主档也不会被更新。
+        丢弃原因由 `remark` 字段留痕（日志规范【强制】敏感操作需可追溯）。
+      security:
+        - AdminJwt: []
+      parameters:
+        - $ref: '#/components/parameters/DeadLetterId'
+        - $ref: '#/components/parameters/TraceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+                  description: 丢弃原因（必填，人工裁决必须留理由）
+                  examples:
+                    - 外部重复推送的历史消息，主档已由更新的消息修正
+      responses:
+        '200':
+          description: 丢弃成功
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            format: int64
+                          status:
+                            type: integer
+                            description: 恒为 2（已丢弃）
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 死信记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: '`4093` 该死信已被重放或丢弃，不允许再次处理'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    AppKeyHmac:
+      type: apiKey
+      in: header
+      name: X-App-Key
+      description: |
+        对外服务鉴权（EP-001 / EP-002），三头一组：
+        - `X-App-Key`：调用方标识
+        - `X-Timestamp`：客户端时间戳（毫秒），服务端校验 ±5min 窗口防重放
+        - `X-Signature`：`HMAC-SHA256(secret, method + "\n" + path + "\n" + timestamp + "\n" + bodySha256)`
+
+        失败：`401/4010` 验签失败；`401/4011` 时间戳超窗。Secret 由线下分配，
+        **禁止出现在任何日志与响应中**（日志规范【强制】）。
+    AdminJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        运营后台鉴权（EP-003 ~ EP-011）。未登录/JWT 失效 → `401/4011`（后台场景与 4010 同义）；
+        已登录但无该操作权限 → `403/4030`。
+        操作人从 JWT 解析后以**拼音账号**写入 `maintain_user` 与流水 `op_user`（需求方裁决）。
+
+  parameters:
+    Sn:
+      name: sn
+      in: path
+      required: true
+      description: 设备序列号（业务唯一键，同时是 Kafka 分区键与缓存 Key 主体）
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: ^[A-Za-z0-9_-]+$
+      example: PB2026102900001
+    DeadLetterId:
+      name: id
+      in: path
+      required: true
+      description: 死信记录主键
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 页码，从 1 开始（HTTP 规范 §6.1 offset 分页）
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      description: 每页条数
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        写接口幂等键（HTTP 规范 §9.1【推荐】，本设计对 EP-004 提升为必填）。
+        服务端缓存 `Key → 首次响应` 24h，同 Key 重放返回首次结果、不重复创建。
+        缺失 → `400/4001`。
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 64
+        pattern: ^[A-Za-z0-9_-]+$
+    TraceIdHeader:
+      name: X-Trace-Id
+      in: header
+      required: false
+      description: 调用方链路 ID；传入则服务端沿用，否则生成。与响应头/响应体 `trace_id` 恒等。
+      schema:
+        type: string
+        maxLength: 64
+
+  headers:
+    TraceId:
+      description: 与响应体 `trace_id` 恒等的链路 ID
+      schema:
+        type: string
+    CacheControlNoStore:
+      description: |
+        恒为 `no-store`。本系统已是"最终一致 + 对账窗口"，禁止再叠加 HTTP/CDN 缓存
+        使不一致窗口变得不可观测。
+      schema:
+        type: string
+        example: no-store
+    RateLimit:
+      description: 时间窗口内允许的最大请求数（按 AppKey 配额）
+      schema:
+        type: integer
+    RateLimitRemaining:
+      description: 剩余请求数
+      schema:
+        type: integer
+    RateLimitReset:
+      description: 时间窗口重置时间（Unix 秒）
+      schema:
+        type: integer
+    RetryAfter:
+      description: 建议重试等待秒数（429 必带）
+      schema:
+        type: integer
+
+  schemas:
+    Envelope:
+      type: object
+      description: 统一响应外壳（HTTP 规范 §4.1【强制】）
+      required: [code, message, data, trace_id]
+      properties:
+        code:
+          type: integer
+          description: 业务码；前 3 位对齐 HTTP status，后 2 位为业务细分。成功恒为 0
+          examples:
+            - 0
+        message:
+          type: string
+          description: 稳定英文短语，供前端 i18n 映射；不含具体 ID 等上下文（HTTP 规范 §5.2）
+          examples:
+            - success
+        data:
+          description: 业务数据；错误时恒为 null
+          type:
+            - object
+            - 'null'
+        trace_id:
+          type: string
+          description: 链路 ID，用于服务端排查（HTTP 规范 §5.1【强制】）
+          examples:
+            - 01J8Z3X4Y5Z6A7B8C9D0E1F2G3
+
+    Error:
+      type: object
+      description: 错误响应（`data` 恒为 null）
+      required: [code, message, data, trace_id]
+      properties:
+        code:
+          type: integer
+          description: |
+            业务错误码：4001 参数缺失 / 4002 格式错误 / 4003 批量超上限 / 4004 缺少必要筛选条件 /
+            4010 验签失败 / 4011 时间戳超窗或未登录 / 4030 无权限 / 4031 该维度未授权本来源 /
+            4040 资源不存在 / 4050 方法不允许 / 4090 SN 已存在 / 4091 版本冲突 /
+            4092 死信重放遇幂等冲突 / 4093 死信已处理 / 4290 超配额限流 / 5000 内部错误 /
+            5030 依赖调用超时或不可用且降级仍失败
+          enum:
+            - 4001
+            - 4002
+            - 4003
+            - 4004
+            - 4010
+            - 4011
+            - 4030
+            - 4031
+            - 4040
+            - 4050
+            - 4090
+            - 4091
+            - 4092
+            - 4093
+            - 4290
+            - 5000
+            - 5030
+        message:
+          type: string
+        data:
+          type: 'null'
+        trace_id:
+          type: string
+
+    PageMeta:
+      type: object
+      description: 分页元信息（HTTP 规范 §6.1）
+      required: [total, page, page_size]
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: 满足条件的总行数
+        page:
+          type: integer
+          description: 当前页码（回显入参）
+        page_size:
+          type: integer
+          description: 每页条数（回显入参）
+
+    Device:
+      type: object
+      description: |
+        对外设备信息 = EP-001 响应白名单，共 **15** 个业务字段。
+        与 Redis 缓存 Value 同源：**缓存 Value = 本字段集 ∪ {`update_time`}**（16 个 key），
+        `update_time` 只用于 EP-007 对账、不出现在响应。任何加字段改动必须同时改这一处装配。
+      required:
+        - sn
+        - model_code
+        - model_name
+        - factory_code
+        - factory_name
+        - produce_time
+        - register_status
+        - online_status
+        - bind_status
+        - bind_target
+        - bind_time
+        - recover_status
+        - scrap_time
+        - remark
+        - image_url
+      properties:
+        sn:
+          type: string
+          description: 设备序列号（业务唯一键）
+        model_code:
+          type: string
+          description: 型号编码
+        model_name:
+          type: string
+          description: 型号名称（冗余存名，后台列表不 join 字典）
+        factory_code:
+          type: string
+          description: 工厂编码（本系统不校验合法性）
+        factory_name:
+          type: string
+          description: 工厂名称
+        produce_time:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: 生产时间；外部未同步时为 `null`（DB 哨兵 `1970-01-01 00:00:00` 出口转 null）
+        register_status:
+          type: integer
+          enum: [0, 1]
+          description: 0-未注册 1-已注册（建档与置位同事务，无"有 SN 但未注册"空窗）
+        online_status:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0-未知 1-在线 2-离线（由外部推送，本系统不做超时判离线）
+        bind_status:
+          type: integer
+          enum: [0, 1]
+          description: 0-未绑定 1-已绑定
+        bind_target:
+          type: string
+          description: 绑定目标（门店/机柜编码，语义由外部定义）；解绑时置空串
+        bind_time:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: 绑定时间；解绑是否清空由外部消息决定，本系统不做联动清理
+        recover_status:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0-正常 1-已回收 2-已报废（是结果状态不是流程，不校验回退）
+        scrap_time:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: 报废时间
+        remark:
+          type: string
+          description: 备注；空串是默认值，不表示"未填写"
+        image_url:
+          type: string
+          description: 设备图片 URL（公网可读、无签名；需求方裁决只要一张图）
+
+    DeviceAdminItem:
+      type: object
+      description: |
+        后台列表项：对外 15 字段 + 后台才需要的内部字段。
+        与 `Device` 的差异**只允许是"多给"不允许"少给"**，否则后台无法做 CAS。
+      allOf:
+        - $ref: '#/components/schemas/Device'
+        - type: object
+          required: [id, version, deleted, create_time, update_time, maintain_user, maintain_time]
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: 主键（不对外）
+            version:
+              type: integer
+              description: 乐观锁版本，EP-005/EP-009 的必填入参来源
+            deleted:
+              type: integer
+              enum: [0, 1]
+              description: 逻辑删除标记
+            create_time:
+              type: string
+              format: date-time
+            update_time:
+              type: string
+              format: date-time
+              description: 同时是 EP-007 缓存对账的水位依据
+            maintain_user:
+              type: string
+              description: 最近维护人（拼音账号）；**不进缓存、不对外**（需求方裁决）
+            maintain_time:
+              type:
+                - string
+                - 'null'
+              format: date-time
+              description: 最近维护时间；**不进缓存、不对外**
+            ext_json:
+              type: object
+              additionalProperties: true
+              description: |
+                外部透传的附加信息。后台可见（`tech-design` §9.5 数据可见性与字段裁剪表），
+                **不进缓存 Value、不进任何对外响应**。
+
+    BatchQueryRequest:
+      type: object
+      required: [sns]
+      properties:
+        sns:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: |
+            待查询 SN 列表。上限 `${device.query.batch-max:100}`（待确认），
+            超限**整体拒绝**返回 `400/4003`，不拆分、不截断。
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: ^[A-Za-z0-9_-]+$
+
+    BatchQueryItem:
+      type: object
+      required: [sn, found, info]
+      properties:
+        sn:
+          type: string
+        found:
+          type: boolean
+          description: 设备存在且未逻辑删除
+        info:
+          description: '`found=false` 时为 `null`'
+          oneOf:
+            - $ref: '#/components/schemas/Device'
+            - type: 'null'
+
+    BatchQueryData:
+      type: object
+      required: [items, missing]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchQueryItem'
+        missing:
+          type: array
+          description: |
+            `items` 中 `found=false` 的 SN 摘要，**由同一次装配产出**。
+            实现若在两处分别计算判定即为缺陷（同一事实两处口径）。
+          items:
+            type: string
+
+    DeviceCreateCommand:
+      type: object
+      description: |
+        EP-004 入参。**只允许这 5 个字段**：状态列、时间列、`maintain_*`、`ext_json`
+        不接受入参（服务端固定），多带即 `400/4002`。
+      required: [sn]
+      additionalProperties: false
+      properties:
+        sn:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: ^[A-Za-z0-9_-]+$
+        model_code:
+          type: string
+          maxLength: 64
+        model_name:
+          type: string
+          maxLength: 128
+        remark:
+          type: string
+          maxLength: 512
+        image_url:
+          type: string
+          maxLength: 512
+          description: 仅存 URL 引用，本期不实现上传
+
+    DeviceProfileUpdateCommand:
+      type: object
+      description: |
+        EP-005 入参 = PROFILE 维度全量列 + `version`。
+        PUT 语义为**全量替换该维度**（不是替换整行）：未传的 PROFILE 列被置为默认值，
+        其余维度列一律不受影响。
+      required: [version]
+      additionalProperties: false
+      properties:
+        model_code:
+          type: string
+          maxLength: 64
+        model_name:
+          type: string
+          maxLength: 128
+        remark:
+          type: string
+          maxLength: 512
+        image_url:
+          type: string
+          maxLength: 512
+        version:
+          type: integer
+          minimum: 0
+          description: 取自 EP-003 列表项的当前版本；不匹配 → `409/4091`，服务端不静默重试
+
+    ChangeRecordItem:
+      type: object
+      description: |
+        设备维度变更流水。"设备存在但无记录"返回空数组，不是 404。
+        `result` 只有 1/3/4 三种：**重复消息与版本冲突不落流水**（整事务回滚 / 重试→死信），
+        这两类事实分别由 `mq_consume_record` 与死信表承载。
+      required: [create_time, source, msg_id, msg_type, dim_type, before_json, after_json, result, op_user]
+      properties:
+        create_time:
+          type: string
+          format: date-time
+          description: 变更落库时间（分区键；也是"该维度最后同步时间"的唯一承载）
+        source:
+          type: string
+          description: 变更来源：外部 source 编码或 `ADMIN`
+        msg_id:
+          type: string
+          description: 消息 ID；后台操作填本地生成的 `ADM-<uuid>`
+        msg_type:
+          type: string
+          description: 消息类型，与维度映射见 data-model §8.4
+          examples:
+            - ONLINE_CHANGE
+        dim_type:
+          type: string
+          enum: [FACTORY, ONLINE, BIND, RECOVER, PROFILE, MAINTAIN]
+          description: 本次变更影响的维度
+        before_json:
+          type: object
+          additionalProperties: true
+          description: 变更前该维度列值快照（人工纠正的依据）
+        after_json:
+          type: object
+          additionalProperties: true
+          description: 变更后该维度列值快照
+        result:
+          type: integer
+          enum: [1, 3, 4]
+          description: 1-已更新 3-设备不存在 4-未授权来源
+        op_user:
+          type: string
+          description: 操作人（`source=ADMIN` 时填拼音账号；消息来源为空串）
+
+    DeadLetterItem:
+      type: object
+      description: |
+        死信列表项（不含 `content`）。
+
+        **不返回 DDL 里的 `update_time`**：该列只是行级技术更新时间，排障与 SLA 计时用
+        `create_time`（进入死信时间）+ `handle_time`（人工处理时间）两个业务时间即可，
+        暴露 `update_time` 会让调用方把它误读成"消息状态变更时间"。
+      required:
+        - id
+        - msg_id
+        - source
+        - topic
+        - consumer_group
+        - partition_no
+        - offset_no
+        - msg_key
+        - fail_reason
+        - retry_count
+        - status
+        - handle_user
+        - handle_time
+        - create_time
+      properties:
+        id:
+          type: integer
+          format: int64
+        msg_id:
+          type: string
+          description: '信封不可解析时填 `UNKNOWN-<partition>-<offset>`；**无唯一约束**：同一条消息可能反复进死信'
+        source:
+          type: string
+          description: 消息来源；信封损坏时空串
+        topic:
+          type: string
+          examples:
+            - device.info.change
+        consumer_group:
+          type: string
+          description: 消费组；同一 Topic 被多消费组订阅时用于区分死信归属
+          examples:
+            - device-management-ingest
+        partition_no:
+          type: integer
+          description: 原始分区号（MQ 规范 §3.3【强制】要求记录原始位点）
+        offset_no:
+          type: integer
+          format: int64
+          description: 原始 Offset，重放定位依据
+        msg_key:
+          type: string
+          description: 原始消息 key，即 sn；重放时用于维持同一分区顺序
+        fail_reason:
+          type: string
+          description: 最后一次失败的异常摘要（完整堆栈在日志，不在库）
+        retry_count:
+          type: integer
+          description: 恒等于配置的最大重试次数（进入死信的前提）
+        status:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0-待处理 1-已重放 2-已丢弃
+        handle_user:
+          type: string
+          description: 处理人（拼音账号）；死信操作等同一次后台编辑，必须留痕
+        handle_time:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: 处理时间；未处理时为 `null`（DB 哨兵值出口转 null）
+        create_time:
+          type: string
+          format: date-time
+          description: 进入死信时间（告警与 SLA 计时起点）
+
+    DeadLetterDetail:
+      allOf:
+        - $ref: '#/components/schemas/DeadLetterItem'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: string
+              description: |
+                原始消息体文本（**存原始字节解码后的内容，不做任何修复**）。
+                只在详情接口返回；超 256KB 的消息在消费端直接判非法，不会进本表。
+
+  responses:
+    BadRequest:
+      description: |
+        `4001` 参数缺失 / `4002` 参数格式错误（含非法 SN 字符、超长、深翻页超上限）/
+        `4003` 批量超上限（仅 EP-002）/ `4004` 缺少必要筛选条件（仅 EP-003）
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 4001
+            message: required parameter missing
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    Unauthorized:
+      description: |
+        `4010` 验签失败（签名不匹配 / AppKey 不存在）/ `4011` 时间戳超窗 ±5min（防重放）；
+        后台场景为未登录或 JWT 失效。
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 4010
+            message: signature verification failed
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    Forbidden:
+      description: '`4030` 已认证但无该操作权限 / `4031` 该维度未授权本来源写入'
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 4030
+            message: permission denied
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    MethodNotAllowed:
+      description: '`4050` URL 支持但当前 HTTP 方法不允许（HTTP 规范 §3.2）'
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 4050
+            message: method not allowed
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    TooManyRequests:
+      description: '`4290` 超出 AppKey 配额；必带 `Retry-After`'
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 4290
+            message: rate limit exceeded
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    InternalError:
+      description: '`5000` 未捕获异常；响应不含堆栈，只给 `trace_id`（HTTP 规范 §5.1【强制】）'
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 5000
+            message: internal server error
+            data: null
+            trace_id: c0a8ab121729876543210abc
+    DependencyUnavailable:
+      description: |
+        `5030` 依赖（Redis / DB）调用超时或不可用，且降级路径仍失败（fail-fast）。
+        本期**不引入熔断框架**（`tech-design.md` §12.4 不引入清单：规范对熔断只列【推荐】，对超时列【强制】），
+        判定条件只有"本次调用的超时/连接结果"。
+        读侧的降级顺序是"缓存 → 互斥重建回源 → 有界自旋 → 降级直查 DB 且不回填"；
+        只有降级路径也失败才返回本码，**不静默返回旧值冒充最新数据**。
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 5030
+            message: dependency unavailable
+            data: null
+            trace_id: c0a8ab121729876543210abc
+
+  x-kafka-message-contracts:
+    description: |
+      EP-006 不是 HTTP 入口，本契约用扩展字段登记其消息结构，供调用方与实现方对齐。
+      语义：At-Least-One（重复是常态，必须幂等）、手动位点、分区键 `sn`、
+      Topic `device.info.change` + 死信 `device.info.change.dlq`。
+      **一条消息只影响一个维度**；同 SN 同维度不会双源。
+    topic: device.info.change
+    dead-letter-topic: device.info.change.dlq
+    consumer-group: device-management-ingest
+    partition-key: sn
+    max-payload-bytes: 262144
+    idempotency-key: [source, msg_id]
+    envelope-schema:
+      type: object
+      required: [source, msg_id, msg_type, sn, data]
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          maxLength: 64
+          description: 来源系统编码；必须已在 `device_dim_source_auth` 授权对应维度，否则 `result=4` 静默拒
+          examples:
+            - DEVICE_PLAT
+        msg_id:
+          type: string
+          maxLength: 64
+          description: 消息 ID，**在同一 source 内唯一**（跨源不要求，故幂等唯一键为 `(source, msg_id)`）
+        msg_type:
+          type: string
+          enum:
+            - FACTORY_REGISTER
+            - ONLINE_CHANGE
+            - BIND_CHANGE
+            - RECOVER_CHANGE
+            - PROFILE_CHANGE
+          description: 未知 `msg_type` → WARN + 计数 + ack（不落死信，避免一条脏消息堵死整个分区）
+        sn:
+          type: string
+          maxLength: 64
+          description: 设备序列号；SN 不存在时流水记 `result=3`、事务正常提交、消息 ack
+        data:
+          type: object
+          description: |
+            按 `msg_type` 的列白名单校验（data-model §8.4）。
+            **key 只能命中白名单**：列名取自代码 `DimSpec` 常量，绝不把 `data` 的 key 当 SQL 标识符
+            （tech-design R14，注入面）；不在白名单的 key 整体拒绝。
+        event_time:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: |
+            **外部契约缺口**：MQ 规范 §1.3【强制】要求消息含业务事件时间，外部未提供。
+            因此本系统**不防业务乱序**（旧事件后到仍会覆盖新值，tech-design R-001 / §11.2 缺陷 1），
+            乱序只能由流水人工发现、后台纠正。字段保留为后续升级水位仲裁留位，本期不参与判定。
+    examples:
+      onlineChange:
+        summary: 在线状态变更
+        value:
+          source: DEVICE_PLAT
+          msg_id: 'dp-20261029-000001'
+          msg_type: ONLINE_CHANGE
+          sn: PB2026102900001
+          data:
+            online_status: 2
+      factoryRegister:
+        summary: 出厂注册（SN 首次出现即建档，建档与 `register_status` 置位同事务）
+        value:
+          source: ASSET_SYS
+          msg_id: 'as-20261029-000002'
+          msg_type: FACTORY_REGISTER
+          sn: PB2026102900002
+          data:
+            model_code: PB-10K-2026A
+            model_name: 20000mAh 双口快充
+            factory_code: F-DG-01
+            factory_name: 东莞一厂
+            produce_time: '2026-10-20T09:00:00+08:00'
+
+  x-internal-entries:
+    description: |
+      以下入口不属 HTTP 契约，但属于同一份交付范围，在此登记以免遗漏
+      （tech-design §5.1 的隐形入口清单）。
+    items:
+      - id: EP-006
+        kind: Kafka Consumer
+        name: 设备变更消费
+        note: 主战场。幂等两层（Redis SETNX 挡并发 + `uk_source_msg` 保正确性）、单事务（幂等记录 + 主档 CAS + 流水）、回滚路径必须释放 `mq:dedup:*`、三种终态才提交位点
+      - id: EP-007
+        kind: 定时任务
+        name: 缓存对账
+        note: 单批 ≤ `${device.cache.reconcile.batch-size}`（建议 500）、周期 `${device.cache.reconcile.cron}`（建议 5 分钟）、任务最大时长 < 周期 80%、水位持久化（`device:cron:watermark:cache-reconcile`）；修复动作只允许 `DEL`；**多实例部署须先抢 `device:lock:cron:cache-reconcile`（TTL = 周期 × `${device.cron.lock-ttl-ratio:0.8}`），见设计 §5.2 G-001**
+      - id: EP-008
+        kind: 定时任务
+        name: 归档清理与分区预建
+        note: 幂等表分批 DELETE（保留 `${device.consume.record-retention-days:90}`）；流水按月 `DROP PARTITION`；每月 25 日预建次月分区并校验 `pmax` 行数——`pmax` 非空则本轮禁止 `DROP PARTITION` 并告警；**两个任务各抢 `device:lock:cron:archive-cleanup` / `device:lock:cron:partition-prebuild`，同上 G-001**
+      - id: EP-012
+        kind: 启动 + 定时刷新
+        name: 维度授权配置加载
+        note: 全量加载进内存 Map，刷新周期 `${device.dim.auth-refresh-seconds:60}`；**不在消息热路径查库**
+      - id: EP-013
+        kind: HTTP 探针（Actuator 独立端口）
+        name: liveness / readiness / metrics
+        note: |
+          Spring Boot 规范【强制】：独立 management 端口、端点显式白名单、除 health/info 外鉴权；
+          **liveness 不含 DB/Redis/Kafka 检查**（否则依赖抖动会杀进程造成雪崩），readiness 才检查依赖。
+          停机顺序 R15：先停止拉取 → 等在途消息到终态 → 提交位点 → 关容器（`server.shutdown=graceful` + `phase` 排序）。
