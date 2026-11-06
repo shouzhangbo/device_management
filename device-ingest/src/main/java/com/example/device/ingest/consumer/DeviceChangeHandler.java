@@ -137,12 +137,25 @@ public class DeviceChangeHandler {
         }
     }
 
+    /**
+     * 主流程：把一条原始记录收敛为一个终态，六步顺序固定（{@code tech-design} §9.3）。
+     * <p>
+     * 每个可能失败的步骤都就地翻译成 {@link ConsumeOutcomeResolver.Outcome}，使调用方
+     * {@link #handle} 只需判断"是否 ack"，不必理解失败原因——业务异常一律不外抛（R11）。
+     * </p>
+     *
+     * @param record 原始记录（字节，未反序列化）
+     * @return 本条消息的终态判定
+     */
     private ConsumeOutcomeResolver.Outcome process(ConsumerRecord<byte[], byte[]> record) {
+        // ① 解析：尺寸或 JSON 结构在字节层就坏掉的消息无法重建信封，直接落死信保留原文（R12）。
         ParseResult parsed = parser.parse(record.value());
         if (parsed.isBad()) {
             log.warn("payload rejected before validation, status={}, reason={}", parsed.status(), parsed.reason());
             return resolver.resolveDeadLetter(deadLetterWriter.write(record, parsed.reason(), 0));
         }
+        // ② 信封校验：字段缺失/越界按校验状态翻译成终态；未知 msg_type 单独计数后静默 ack，
+        //    避免一条脏消息堵死整个分区。
         ValidateResult validated = validator.validate(parsed.envelope());
         ConsumeOutcomeResolver.Outcome early = resolver.resolveValidation(validated.status());
         if (early != null) {
@@ -153,6 +166,7 @@ public class DeviceChangeHandler {
                     validated.status(), parsed.envelope().msgType(), parsed.envelope().sn(), validated.reason());
             return early;
         }
+        // ③ 维度授权：(dim, source) 不在授权表内 → 静默拒 + 计数，这是上游数据质量的第一信号。
         ValidatedCommand command = validated.command();
         ConsumeOutcomeResolver.Outcome unauthorized =
                 resolver.resolveAuth(authGuard.check(command.dim(), command.source()));
@@ -162,22 +176,28 @@ public class DeviceChangeHandler {
                     command.dim(), command.source(), command.sn(), command.msgId());
             return unauthorized;
         }
+        // ④ Redis 挡重（幂等第一层）：只挡并发重复以省掉无谓事务，正确性仍由 DB 唯一索引兜底。
+        //    占位成功才继续；失败说明同 (source, msg_id) 正在处理中，按重复 ack。
         if (!dedupGuard.tryMark(command.source(), command.msgId())) {
             metrics.duplicate();
             log.info("duplicate message filtered by redis, source={}, msg_id={}, sn={}",
                     command.source(), command.msgId(), command.sn());
             return ConsumeOutcomeResolver.Outcome.DUPLICATE;
         }
+        // ⑤ 有界重试写入：事务体在 DeviceInfoApplier 内；每次重试失败先经回调释放幂等键，
+        //    否则下一轮会被第④步永久挡在门外。
         long startedAt = System.nanoTime();
         try {
             ApplyOutcome applied = retryBudget.run(() -> applyOnce(command, record.topic()),
                     () -> dedupGuard.release(command.source(), command.msgId()));
+            // ⑥ 终态：无论成败都记录写路径耗时；成功计数，其余交由 resolver 判定是否 ack。
             metrics.recordApplyDuration(Duration.ofNanos(System.nanoTime() - startedAt));
             if (applied == ApplyOutcome.APPLIED) {
                 metrics.applied();
             }
             return resolver.resolve(applied);
         } catch (RetryBudget.ExhaustedException e) {
+            // ⑤' 重试预算耗尽 → 落死信（仍是终态：ack + 告警，交人工重放）。
             metrics.recordApplyDuration(Duration.ofNanos(System.nanoTime() - startedAt));
             String reason = reasonOf(e);
             log.warn("retry exhausted, sn={}, msg_id={}, reason={}", command.sn(), command.msgId(), reason);
@@ -198,11 +218,27 @@ public class DeviceChangeHandler {
         }
     }
 
+    /**
+     * 拼装死信原因：重试包装异常自身的 message 常是泛化的"exhausted"，
+     * 拼上 cause 才能定位真实失败点（如乐观锁冲突、约束名）。
+     *
+     * @param e 重试耗尽异常
+     * @return 含根因描述的原因串
+     */
     private static String reasonOf(Throwable e) {
         Throwable cause = e.getCause();
         return cause == null ? e.getMessage() : e.getMessage() + ": " + cause.getMessage();
     }
 
+    /**
+     * 节流采样并上报当前消费者的最大分区 lag（KIP-92 的 {@code records-lag-max}）。
+     * <p>
+     * 本方法挂在每条消息路径上，故按 {@value #LAG_REPORT_INTERVAL_MS}ms 间隔采样：
+     * lag 是慢变量，秒级精度足以支撑告警，无需逐条读取。
+     * </p>
+     *
+     * @param consumer 当前消费线程的消费者，{@code null} 时直接跳过
+     */
     private void reportLag(Consumer<?, ?> consumer) {
         long now = System.currentTimeMillis();
         if (consumer == null || now - lastLagReportAt < LAG_REPORT_INTERVAL_MS) {
