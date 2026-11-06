@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设备管理运营后台 · 效果图</title>
+<style>
+  :root{
+    --bg:#f0f2f5; --card:#fff; --line:#e3e7ed; --ink:#1f2328; --sub:#69727e;
+    --brand:#2563eb; --brand-d:#1d4ed8; --ok:#15803d; --warn:#d97706; --bad:#dc2626;
+    --mut:#94a3b8; --hover:#f5f8ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:var(--bg);
+    font:13.5px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  button{font:inherit;cursor:pointer}
+  input,select,textarea{font:inherit;color:var(--ink)}
+  .app{display:grid;grid-template-columns:196px minmax(0,1fr) 372px;min-height:100vh}
+  /* 侧栏 */
+  .side{background:#111827;color:#cbd5e1;padding:16px 0}
+  .side .logo{padding:0 16px 14px;font-weight:700;color:#fff;font-size:14px;border-bottom:1px solid #1f2a3a;margin-bottom:10px}
+  .side a{display:block;padding:9px 16px;font-size:13px;color:#cbd5e1;text-decoration:none;border-left:3px solid transparent}
+  .side a.on{background:#1f2a3a;color:#fff;border-left-color:var(--brand)}
+  .side a.off{color:#5b6572;cursor:not-allowed;font-size:12.2px}
+  .side a.sub{padding-left:30px;font-size:12.4px}
+  .side .cap{padding:6px 16px;font-size:11px;color:#4b5563;letter-spacing:.06em}
+  /* 主区 */
+  .main{padding:0 0 28px;min-width:0}
+  .top{background:var(--card);border-bottom:1px solid var(--line);padding:11px 20px;display:flex;
+    justify-content:space-between;align-items:center;position:sticky;top:0;z-index:8}
+  .crumb{color:var(--sub);font-size:12.5px}
+  .who{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--sub)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px}
+  .jwt{border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:11.5px;color:var(--ok);background:#f0fdf4}
+  .pad{padding:16px 20px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+  .card>h3{margin:0 0 12px;font-size:13.5px;display:flex;align-items:center;gap:8px}
+  /* 筛选 */
+  .filters{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px 12px}
+  .f label{display:block;font-size:12px;color:var(--sub);margin-bottom:3px}
+  .f .ctl{width:100%;border:1px solid var(--line);border-radius:5px;padding:6px 8px;background:#fff}
+  .f .ctl:focus{outline:2px solid #dbeafe;border-color:var(--brand)}
+  .f .hint{font-size:11px;color:var(--mut);margin-top:2px}
+  .frow{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:5px;padding:6px 14px}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.p:hover{background:var(--brand-d)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--sub)}
+  /* 表格 */
+  .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;flex-wrap:wrap}
+  .bar .sum{font-size:12.5px;color:var(--sub)}
+  table{border-collapse:collapse;width:100%;font-size:12.6px}
+  th,td{border-bottom:1px solid var(--line);padding:8px 8px;text-align:left;white-space:nowrap}
+  th{background:#f8fafc;color:var(--sub);font-weight:600;position:sticky;top:0}
+  tbody tr:hover{background:var(--hover)}
+  tbody tr.gone{color:var(--mut);background:#fafafa}
+  tbody tr.flash{animation:fl 1.6s ease-out}
+  @keyframes fl{0%{background:#fef9c3}100%{background:transparent}}
+  .scroll{overflow:auto;max-height:calc(100vh - 348px);border:1px solid var(--line);border-radius:6px}
+  .badge{display:inline-block;border-radius:3px;padding:1px 7px;font-size:11.5px;line-height:1.7}
+  .thumb{width:40px;height:40px;border-radius:4px;border:1px solid var(--line);object-fit:cover;background:#fff;display:block}
+  .thumb.none{border-style:dashed;display:grid;place-items:center;font-size:10.6px;color:var(--mut)}
+  .b-on{background:#dcfce7;color:var(--ok)} .b-off{background:#f1f5f9;color:#475569}
+  .b-unk{background:#fef3c7;color:var(--warn)} .b-y{background:#dbeafe;color:var(--brand-d)}
+  .b-red{background:#fee2e2;color:var(--bad)} .b-gray{background:#f1f5f9;color:var(--sub)}
+  .ops button{border:none;background:none;color:var(--brand);padding:0 6px;font-size:12.5px}
+  .ops button.danger{color:var(--bad)}
+  .ops button:hover{text-decoration:underline}
+  .ops .sep{color:var(--line)}
+  .ver{font-size:11.5px;color:var(--sub)}
+  .empty{padding:34px;text-align:center;color:var(--mut)}
+  /* 分页 */
+  .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:11px;font-size:12.5px;color:var(--sub);flex-wrap:wrap}
+  .pager input{width:56px;border:1px solid var(--line);border-radius:4px;padding:4px 6px}
+  .pager select{border:1px solid var(--line);border-radius:4px;padding:4px 6px}
+  /* 右侧轨迹 */
+  .trail{background:#0f172a;color:#cbd5e1;padding:14px 14px 28px;font-size:12.2px;overflow:auto;max-height:100vh}
+  .trail h3{margin:0 0 4px;color:#fff;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+  .trail .sub{color:#7c8ba1;font-size:11.5px;margin-bottom:10px}
+  .hit{border:1px solid #1e293b;border-radius:6px;padding:9px 10px;margin-bottom:9px;background:#111c30}
+  .hit .m{color:#f8fafc;font-weight:600}
+  .hit .path{color:#93c5fd;word-break:break-all}
+  .hit .st{font-size:11.5px;border-radius:3px;padding:0 6px;margin-left:6px}
+  .s-ok{background:#14532d;color:#bbf7d0}.s-warn{background:#78350f;color:#fde68a}
+  .s-bad{background:#7f1d1d;color:#fecaca}.s-gray{background:#1e293b;color:#94a3b8}
+  .hit pre{margin:6px 0 0;background:#0b1424;color:#c9d5e5;padding:7px 8px;border-radius:4px;
+    font-size:11.4px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+  .hit .eff{color:#86efac;font-size:11.6px;margin-top:5px;line-height:1.55}
+  .demo{margin:0 0 12px;display:flex;gap:8px}
+  .demo button{background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 9px;font-size:11.8px}
+  .cbox{border:1px solid #1e293b;border-radius:6px;padding:9px 10px;margin-bottom:12px;background:#111c30}
+  .cbox .cap{font-size:11.5px;color:#7c8ba1;letter-spacing:.05em;margin-bottom:6px}
+  .cbox .k{display:flex;gap:7px;align-items:baseline;font-size:11.6px;padding:3px 0;border-top:1px dashed #1e293b}
+  .cbox .k:first-of-type{border-top:none}
+  .cbox .key{color:#93c5fd;word-break:break-all;flex:1;min-width:0}
+  .cbox .why{color:#86efac;font-size:11.2px;text-align:right;flex:0 0 auto;max-width:150px}
+  .cbox .idle{color:#475563;font-size:11.6px}
+  /* 弹层 */
+  .mask{position:fixed;inset:0;background:rgba(15,23,42,.42);display:none;z-index:20}
+  .mask.on{display:block}
+  .drawer{position:fixed;top:0;right:0;width:min(560px,94vw);height:100%;background:#fff;z-index:21;
+    transform:translateX(100%);transition:transform .22s;display:flex;flex-direction:column;box-shadow:-6px 0 24px rgba(0,0,0,.12)}
+  .drawer.on{transform:none}
+  .drawer header,.modal header{padding:13px 18px;border-bottom:1px solid var(--line);display:flex;
+    justify-content:space-between;align-items:center;font-weight:600}
+  .drawer .body{padding:16px 18px;overflow:auto;flex:1}
+  .x{border:none;background:none;font-size:19px;color:var(--sub);line-height:1}
+  .modal{position:fixed;z-index:22;left:50%;top:8%;transform:translateX(-50%);width:min(620px,94vw);
+    background:#fff;border-radius:9px;max-height:86vh;display:none;flex-direction:column}
+  .modal.on{display:flex}
+  .modal .body{padding:14px 18px;overflow:auto}
+  .modal footer{padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;align-items:center}
+  .kv{display:grid;grid-template-columns:148px minmax(0,1fr);gap:7px 10px;font-size:12.6px}
+  .kv>b{color:var(--sub);font-weight:500}
+  .sect{margin:0 0 14px}
+  .sect h4{margin:0 0 8px;font-size:12.5px;color:var(--brand-d);letter-spacing:.02em}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:9px 11px;font-size:12.2px;color:#78350f;margin:10px 0}
+  .note.b{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+  .form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .form .f2{min-width:0}
+  .form .full{grid-column:1/-1}
+  .form label{display:block;font-size:12px;color:var(--sub);margin-bottom:3px}
+  .form .req::after{content:" *";color:var(--bad)}
+  .form input,.form textarea{width:100%;border:1px solid var(--line);border-radius:5px;padding:7px 9px}
+  .form input[readonly]{background:#f8fafc;color:var(--sub)}
+  .form .err{color:var(--bad);font-size:11.8px;margin-top:2px;min-height:15px}
+  .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:40;display:flex;flex-direction:column;gap:8px;align-items:center}
+  .t{background:#111827;color:#fff;border-radius:6px;padding:9px 16px;font-size:12.8px;box-shadow:0 6px 18px rgba(0,0,0,.2);
+    display:flex;gap:8px;align-items:center;max-width:80vw}
+  .t.ok{background:#14532d}.t.bad{background:#991b1b}.t.warn{background:#78350f}
+  .legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;font-size:12.2px;color:var(--sub)}
+  .legend div{border-left:3px solid var(--brand);background:#f8fafc;border-radius:0 6px 6px 0;padding:8px 10px}
+  .legend b{color:var(--ink)}
+  @media(max-width:1320px){.app{grid-template-columns:196px minmax(0,1fr)}.trail{grid-column:1/-1;max-height:420px}}
+  @media(max-width:900px){.app{grid-template-columns:minmax(0,1fr)}.side{display:none}.filters{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 侧栏 -->
+  <aside class="side">
+    <div class="logo">设备管理运营后台</div>
+    <a href="#" class="on" id="navDevice">设备管理</a>
+    <a href="#" class="sub off" title="本效果图未实现此页；需求方裁决本期不做固件版本差异（tech-design §3「明确不做的范围」）">固件管理</a>
+    <a href="#" class="sub off" title="本效果图未实现此页；需求方裁决本期不做 OTA（tech-design §3「明确不做的范围」）">OTA升级管理</a>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="main">
+    <div class="top">
+      <div class="crumb">设备管理运营后台 <span style="color:var(--mut)">/</span> <b style="color:var(--ink)">设备管理</b>
+        <span class="mono" style="color:var(--mut);margin-left:8px">EP-003</span></div>
+      <div class="who"><span class="jwt">JWT RS256 已校验</span>
+        <span>操作人 <b id="opUser">zhangsan</b> <span class="mono" style="color:var(--mut)">（拼音账号 → maintain_user）</span></span>
+        <span class="avatar">张</span></div>
+    </div>
+
+    <div class="pad">
+      <!-- 搜索 -->
+      <div class="card">
+        <h3>查询条件 <span class="mono" style="font-size:11.5px;color:var(--mut);font-weight:400">
+          GET /api/v1/admin/devices</span></h3>
+        <div class="filters">
+          <div class="f"><label>设备 SN（右模糊）</label>
+            <input class="ctl" id="fSn" placeholder="PB2026102900001 / 前缀 PB2026">
+            <div class="hint">前缀匹配走 <code>uk_sn</code>，禁止 <code>%kw%</code> 全模糊</div></div>
+          <div class="f"><label>创建时间 · 起</label><input class="ctl" type="date" id="fCs"></div>
+          <div class="f"><label>创建时间 · 止</label><input class="ctl" type="date" id="fCe"></div>
+          <div class="f"><label>型号编码</label>
+            <select class="ctl" id="fModel"><option value="">全部</option></select>
+            <div class="hint"><code>model_code</code> + 时间范围可组合命中索引</div></div>
+          <div class="f"><label>在线状态</label>
+            <select class="ctl" id="fOnline"><option value="">全部</option><option value="0">0 未知</option>
+              <option value="1">1 在线</option><option value="2">2 离线</option></select></div>
+          <div class="f"><label>出厂注册</label>
+            <select class="ctl" id="fReg"><option value="">全部</option><option value="0">0 未注册</option>
+              <option value="1">1 已注册</option></select></div>
+          <div class="f"><label>绑定状态</label>
+            <select class="ctl" id="fBind"><option value="">全部</option><option value="0">0 未绑定</option>
+              <option value="1">1 已绑定</option></select></div>
+          <div class="f"><label>回收报废</label>
+            <select class="ctl" id="fRec"><option value="">全部</option><option value="0">0 正常</option>
+              <option value="1">1 已回收</option><option value="2">2 已报废</option></select></div>
+        </div>
+        <div class="frow">
+          <label class="chk"><input type="checkbox" id="fDel"> 含已回收设备（<code>deleted=1</code>）</label>
+          <span style="flex:1"></span>
+          <button class="btn" id="btnReset">重置</button>
+          <button class="btn p" id="btnQuery">查询</button>
+          <button class="btn p" id="btnCreate" style="background:var(--ok);border-color:var(--ok)">＋ 录入设备</button>
+        </div>
+        <div class="note" style="margin-bottom:0">平台强制约束：<b>至少带一个高区分度筛选条件</b>
+          （SN / SN 前缀 / 型号 + 时间范围），无条件全量翻页会被服务端拒绝
+          <span class="mono">400 / 4004</span>；深翻页 offset 超 <code>device.admin.max-offset=10000</code> 拒绝
+          <span class="mono">400 / 4002</span>。</div>
+      </div>
+
+      <!-- 列表 -->
+      <div class="card">
+        <div class="bar">
+          <h3 style="margin:0">设备列表</h3>
+          <div class="sum" id="sum"></div>
+        </div>
+        <div class="scroll">
+          <table>
+            <thead><tr>
+              <th>设备 SN</th><th>型号</th><th>图片</th><th>工厂</th><th>在线</th><th>注册</th><th>绑定</th>
+              <th>回收报废</th><th>生产时间</th><th>创建时间</th><th>更新时间</th>
+              <th>version</th><th>维护人</th><th>操作</th>
+            </tr></thead>
+            <tbody id="tb"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <span>共 <b id="total">0</b> 条</span>
+          <label>每页 <select id="ps"><option>10</option><option>20</option><option>50</option></select> 条</label>
+          <span id="pgInfo"></span>
+          <button class="btn" id="prev" style="padding:4px 10px">上一页</button>
+          <button class="btn" id="next" style="padding:4px 10px">下一页</button>
+          <label>跳至 <input class="mono" id="jump" value="1"></label>
+        </div>
+        <div class="legend" style="margin-top:14px">
+          <div><b>操作列语义</b><br>查看＝读主档全列＋该 SN 变更流水（EP-010）；编辑＝只改 PROFILE 4 列＋<code>maintain_*</code>，一次 CAS；回收＝逻辑删 <code>deleted=1</code>，不是物理删。</div>
+          <div><b>为什么列表里有 version</b><br>后台乐观锁需要它随编辑请求回传；对外查询接口<b>不返回</b> <code>version/id/deleted/maintain_*/ext_json</code>（字段白名单）。</div>
+          <div><b>时间列显示"未同步"</b><br>库内用哨兵值 <code>1970-01-01 00:00:00</code> 表示外部尚未推送，出口转 <code>null</code>，不把内部约定泄漏给使用方。</div>
+          <div><b>图片列</b><br><code>image_url</code> 属对外白名单，是<b>公网可读</b>地址、不需要签名。空串＝建档时未填（显示"无图"）；本效果图离线打开，缩略图用按型号配色的本地占位图，真实地址见悬停提示与详情抽屉。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：接口调用与副作用轨迹 -->
+  <aside class="trail">
+    <h3>接口调用与副作用 <button class="x" id="clearHit" title="清空">×</button></h3>
+    <div class="sub">每次页面操作都对应一次真实契约调用：请求头、请求体、响应外壳（<code>code/message/data/trace_id</code>）与其触发的 SQL、缓存删除、流水留痕。</div>
+    <div class="demo">
+      <button id="simPush">⚙ 演示：模拟外部推送改这台设备</button>
+      <button id="simPush2">⚙ 演示：外部源未授权（4031）</button>
+    </div>
+    <div class="cbox" id="cacheBox"></div>
+    <div id="hits"></div>
+  </aside>
+</div>
+
+<!-- 详情抽屉 -->
+<div class="mask" id="mask"></div>
+<div class="drawer" id="drawer">
+  <header><span id="dTitle">设备详情</span><button class="x" id="dClose">×</button></header>
+  <div class="body" id="dBody"></div>
+</div>
+
+<!-- 录入 / 编辑 弹窗 -->
+<div class="modal" id="modal">
+  <header><span id="mTitle">录入设备</span><button class="x" id="mClose">×</button></header>
+  <div class="body"><div id="mBody"></div></div>
+  <footer><span id="mFoot" style="flex:1;font-size:12px;color:var(--sub)"></span>
+    <button class="btn" id="mCancel">取消</button><button class="btn p" id="mSave">保存</button></footer>
+</div>
+
+<!-- 回收确认 -->
+<div class="modal" id="confirm" style="width:min(480px,94vw)">
+  <header><span>确认回收设备</span><button class="x" id="cClose">×</button></header>
+  <div class="body"><div id="cBody"></div></div>
+  <footer><span style="flex:1"></span><button class="btn" id="cCancel">取消</button>
+    <button class="btn p" id="cOk" style="background:var(--bad);border-color:var(--bad)">确认回收</button></footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* -------------------------------------------------- 数据（真实字段与哨兵口径） */
+const SENT='1970-01-01 00:00:00';
+let seq=1000, rows=[
+  R('PB2026102900001','PB-10K-2026A','20000mAh 双口快充','F-DG-01','东莞一厂','2026-08-11 10:30:00',1,1,1,'STORE-8823','2026-09-02 14:05:00',0,SENT,'','https://cdn.example.com/device/pb-10k-2026a.png','zhangsan','2026-10-20 15:00:00',12,0,'2026-10-29 09:00:00','2026-10-29 10:05:00'),
+  R('PB2026102900002','PB-10K-2026A','20000mAh 双口快充','F-DG-01','东莞一厂','2026-08-11 10:31:00',1,2,0,'',SENT,0,SENT,'门店 A 备用机','https://cdn.example.com/device/pb-10k-2026a.png','lisi','2026-10-21 09:20:00',7,0,'2026-10-29 09:00:00','2026-10-29 10:31:00'),
+  R('PB2026102900003','PB-5K-2025B','10000mAh 基础款','F-SZ-07','深圳七厂',SENT,0,0,0,'',SENT,0,SENT,'','',  '',SENT,0,0,'2026-10-28 18:00:00','2026-10-28 18:00:00'),
+  R('PB2026102900004','PB-5K-2025B','10000mAh 基础款','F-SZ-07','深圳七厂','2026-07-01 08:00:00',1,1,1,'CAB-1121','2026-08-19 11:12:00',0,SENT,'','https://cdn.example.com/device/pb-5k-2025b.png','zhangsan','2026-10-18 17:40:00',31,0,'2026-10-27 11:00:00','2026-10-29 08:44:00'),
+  R('PB2026102800005','PB-10K-2026A','20000mAh 双口快充','F-DG-01','东莞一厂','2026-06-22 09:10:00',1,0,1,'STORE-4410','2026-07-05 13:00:00',1,'2026-10-12 16:20:00','回收待处理','',  'ops_wang','2026-10-12 16:25:00',44,1,'2026-10-26 10:00:00','2026-10-29 07:10:00'),
+  R('PB2026102800006','PB-20K-2026C','20000mAh 三口快充','F-DG-03','东莞三厂','2026-09-30 15:45:00',1,1,0,'',SENT,0,SENT,'','https://cdn.example.com/device/pb-20k-2026c.png','',SENT,3,0,'2026-10-25 14:00:00','2026-10-29 10:40:00'),
+  R('PB2026102700007','PB-20K-2026C','20000mAh 三口快充','F-DG-03','东莞三厂','2026-09-30 15:46:00',1,2,1,'CAB-2233','2026-10-11 09:00:00',2,'2026-10-20 10:00:00','电芯鼓包报废','',  'ops_wang','2026-10-20 10:05:00',58,1,'2026-10-24 09:00:00','2026-10-28 22:00:00'),
+  R('PB2026102700008','PB-10K-2026A','20000mAh 双口快充','F-DG-01','东莞一厂','2026-08-05 12:00:00',1,1,1,'STORE-7788','2026-09-01 10:00:00',0,SENT,'','https://cdn.example.com/device/pb-10k-2026a.png','zhangsan','2026-10-15 11:30:00',19,0,'2026-10-23 16:00:00','2026-10-29 09:55:00'),
+  R('PB2026102600009','PB-5K-2025B','10000mAh 基础款','F-SZ-07','深圳七厂','2026-05-19 07:30:00',1,0,0,'',SENT,0,SENT,'','',  '',SENT,2,0,'2026-10-22 10:00:00','2026-10-26 12:00:00'),
+  R('PB2026102600010','PB-10K-2026A','20000mAh 双口快充','F-DG-01','东莞一厂','2026-08-20 20:00:00',1,1,1,'STORE-1201','2026-09-28 18:30:00',0,SENT,'','https://cdn.example.com/device/pb-10k-2026a.png','lisi','2026-10-19 14:00:00',26,0,'2026-10-21 09:00:00','2026-10-29 10:15:00'),
+  R('PB2026102500011','PB-20K-2026C','20000mAh 三口快充','F-DG-03','东莞三厂','2026-10-01 10:10:00',1,2,0,'',SENT,0,SENT,'离线超 7 天','',  '',SENT,5,0,'2026-10-20 11:00:00','2026-10-29 06:30:00'),
+  R('PB2026102500012','PB-5K-2025B','10000mAh 基础款','F-SZ-07','深圳七厂',SENT,0,1,1,'CAB-9080','2026-10-08 21:00:00',0,SENT,'','',  'zhangsan','2026-10-17 08:00:00',15,0,'2026-10-19 15:00:00','2026-10-29 09:20:00'),
+];
+function R(sn,model_code,model_name,factory_code,factory_name,produce_time,register_status,online_status,
+  bind_status,bind_target,bind_time,recover_status,scrap_time,remark,image_url,maintain_user,maintain_time,
+  version,deleted,create_time,update_time){
+  return { id:seq++, sn, model_code, model_name, factory_code, factory_name, produce_time, register_status,
+    online_status, bind_status, bind_target, bind_time, recover_status, scrap_time, remark, image_url,
+    maintain_user, maintain_time, ext_json:'{}', version, deleted, create_time, update_time };
+}
+let records = [ /* EP-010 变更流水（示例） */
+  { sn:'PB2026102900001', source:'DEVICE_PLAT', msg_id:'ext-20261029-000001', msg_type:'ONLINE_CHANGE', dim_type:'ONLINE',
+    before_json:'{"online_status":0}', after_json:'{"online_status":1}', result:1, op_user:'-', create_time:'2026-10-29 10:05:00' },
+  { sn:'PB2026102900001', source:'ASSET_SYS', msg_id:'ext-20261029-000003', msg_type:'BIND_CHANGE', dim_type:'BIND',
+    before_json:'{"bind_status":0}', after_json:'{"bind_status":1,"bind_target":"STORE-8823"}', result:1, op_user:'-', create_time:'2026-10-29 10:20:00' },
+  { sn:'PB2026102900001', source:'ADMIN', msg_id:'-', msg_type:'PROFILE_CHANGE', dim_type:'PROFILE',
+    before_json:'{"remark":""}', after_json:'{"remark":"门店 A 备用机"}', result:1, op_user:'zhangsan', create_time:'2026-10-20 15:00:00' },
+  { sn:'PB2026102800005', source:'RECOVER_SYS', msg_id:'ext-20261028-000090', msg_type:'RECOVER_CHANGE', dim_type:'RECOVER',
+    before_json:'{"recover_status":0}', after_json:'{"recover_status":1}', result:1, op_user:'-', create_time:'2026-10-12 16:20:00' },
+  { sn:'PB2026102800005', source:'ADMIN', msg_id:'-', msg_type:'-', dim_type:'-',
+    before_json:'{"deleted":0}', after_json:'{"deleted":1}', result:1, op_user:'ops_wang', create_time:'2026-10-12 16:25:00' },
+];
+const dimAuth = [ ['FACTORY','ASSET_SYS'], ['ONLINE','DEVICE_PLAT'], ['BIND','ASSET_SYS'],
+  ['RECOVER','RECOVER_SYS'], ['PROFILE','ADMIN'], ['MAINTAIN','ADMIN'] ];
+
+/* -------------------------------------------------- 工具 */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const now=()=>{ const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+const iso=s=> s===SENT||!s?null:s.replace(' ','T')+'+08:00';
+const sent=s=> s===SENT||!s;
+const trace=()=>'01J8Z'+Math.random().toString(36).slice(2,10).toUpperCase()+'X';
+const key=()=>'idem-'+Math.random().toString(36).slice(2,10);
+const canWrite=(dim,src)=>dimAuth.some(([d,s])=>d===dim&&s===src);
+function badge(v,map){ const [cls,text]=map[v]; return `<span class="badge ${cls}">${text}</span>`; }
+const ON={0:['b-unk','0 未知'],1:['b-on','1 在线'],2:['b-off','2 离线']};
+const REG={0:['b-gray','0 未注册'],1:['b-y','1 已注册']};
+const BIND={0:['b-gray','0 未绑定'],1:['b-y','1 已绑定']};
+const REC={0:['b-on','0 正常'],1:['b-unk','1 已回收'],2:['b-red','2 已报废']};
+function picUri(r){ const c={'PB-10K-2026A':'#2563eb','PB-5K-2025B':'#0f766e','PB-20K-2026C':'#7c3aed'}[r.model_code]||'#64748b';
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">'
+    +'<rect width="40" height="40" rx="5" fill="'+c+'"/>'
+    +'<rect x="11" y="7" width="18" height="26" rx="4" fill="#fff" opacity=".92"/>'
+    +'<rect x="15" y="11" width="10" height="3" rx="1.5" fill="'+c+'"/>'
+    +'<circle cx="20" cy="22" r="3.4" fill="'+c+'"/>'
+    +'<rect x="16" y="28" width="8" height="2" rx="1" fill="'+c+'" opacity=".55"/></svg>';
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); }
+function imgCell(r){ return r.image_url
+    ? `<img class="thumb" src="${picUri(r)}" alt="" title="本效果图离线打开，缩略图为本地占位图；库内真实值：${esc(r.image_url)}">`
+    : '<div class="thumb none" title="image_url 为空串（建档时未填）">无图</div>'; }
+function toast(msg,type=''){ const t=document.createElement('div'); t.className='t '+type; t.textContent=msg;
+  $('#toast').appendChild(t); setTimeout(()=>t.remove(),3200); }
+
+/* -------------------------------------------------- 接口轨迹 */
+let hits=[], simTarget=null, lastIdem='';
+function hit(o){ hits.unshift(o); if(hits.length>24) hits.pop(); drawHits(); }
+function drawHits(){
+  $('#hits').innerHTML = hits.map(h=>`<div class="hit">
+    <div><span class="m mono">${esc(h.method)}</span> <span class="path mono">${esc(h.path)}</span>
+      <span class="st ${h.cls}">${esc(h.status)}</span></div>
+    <pre>${esc(h.req)}</pre><pre>${esc(h.res)}</pre>${h.eff?`<div class="eff">${h.eff}</div>`:''}</div>`).join('')
+    || '<div class="sub" style="color:#475563">（尚无操作）</div>';
+}
+$('#clearHit').onclick=()=>{ hits=[]; drawHits(); };
+
+/* -------------------------------------------------- 查询 */
+let page=1, size=10, filtered=null;
+function currentFilters(){
+  return { sn:$('#fSn').value.trim(), cs:$('#fCs').value, ce:$('#fCe').value, model:$('#fModel').value,
+    online:$('#fOnline').value, reg:$('#fReg').value, bind:$('#fBind').value, rec:$('#fRec').value,
+    del:$('#fDel').checked };
+}
+function runQuery(logIt=true){
+  const f=currentFilters();
+  const hasSharp = f.sn || f.model || (f.cs||f.ce);
+  const offset=(page-1)*size;
+  if(logIt) $('#jump').value=page;
+  if(!hasSharp){
+    hit({method:'GET', path:'/api/v1/admin/devices?page='+page+'&page_size='+size, status:'400 · 4004', cls:'s-bad',
+      req:'Header  Authorization: Bearer <JWT RS256>  (operator=zhangsan)',
+      res:JSON.stringify({code:4004,message:'缺少必要筛选条件（SN / SN 前缀 / 型号 + 时间范围 至少一项）',data:null,trace_id:trace()}),
+      eff:'服务端拒绝，<b>不执行任何 SQL</b>：无条件全量翻页会全表扫描并拖垮 DB。'});
+    toast('400 / 4004 缺少必要筛选条件，已按规范拒绝','bad');
+    filtered=null; draw(); return;
+  }
+  if(offset>10000){
+    hit({method:'GET', path:`/api/v1/admin/devices?page=${page}&page_size=${size}`, status:'400 · 4002', cls:'s-bad',
+      req:`offset=${offset} > device.admin.max-offset=10000`,
+      res:JSON.stringify({code:4002,message:'深翻页超过上限，请收窄筛选条件',data:null,trace_id:trace()}),
+      eff:'深翻页靠大 offset 扫描代价过高，直接拒绝而非静默截断。'});
+    toast('400 / 4002 深翻页超上限','bad'); return;
+  }
+  const day=t=>t.slice(0,10);
+  filtered=rows.filter(r=>{
+    if(!f.del && r.deleted===1) return false;
+    if(f.sn && !(r.sn===f.sn || r.sn.startsWith(f.sn))) return false;
+    if(f.model && r.model_code!==f.model) return false;
+    if(f.online!=='' && String(r.online_status)!==f.online) return false;
+    if(f.reg!=='' && String(r.register_status)!==f.reg) return false;
+    if(f.bind!=='' && String(r.bind_status)!==f.bind) return false;
+    if(f.rec!=='' && String(r.recover_status)!==f.rec) return false;
+    if(f.cs && day(r.create_time)<f.cs) return false;
+    if(f.ce && day(r.create_time)>f.ce) return false;
+    return true;
+  }).sort((a,b)=> b.create_time<a.create_time?-1:1);
+  if(logIt){
+    const qs=['page='+page,'page_size='+size];
+    if(f.sn) qs.push('sn_prefix='+f.sn);
+    if(f.model) qs.push('model_code='+f.model);
+    if(f.online!=='') qs.push('online_status='+f.online);
+    if(f.cs||f.ce) qs.push('create_time_start='+(f.cs||'')+'&create_time_end='+(f.ce||''));
+    if(f.del) qs.push('include_deleted=1');
+    hit({method:'GET', path:'/api/v1/admin/devices?'+qs.join('&'), status:'200 · code 0', cls:'s-ok',
+      req:'Header  Authorization: Bearer <JWT RS256>\nQuery     '+qs.join('&'),
+      res:JSON.stringify({code:0,message:'success',data:{items:[/* '+filtered.length+' 项 */],total:filtered.length,page,page_size:size},trace_id:trace()}),
+      eff:`SELECT … WHERE ${qs.slice(2).join(' AND ')||'筛选条件'} AND deleted=0<br>ORDER BY create_time DESC LIMIT ${size} OFFSET ${offset}（走 <code>uk_sn</code> 前缀 / <code>idx_model_code_produce_time</code>；<b>不查也不写 Redis</b>——缓存只服务对外点查）`});
+  }
+  draw();
+}
+function draw(){
+  const list = filtered||[];
+  const pages = Math.max(1, Math.ceil(list.length/size));
+  if(page>pages && (filtered!==null)) { page=pages; $('#jump').value=page; }
+  const slice=list.slice((page-1)*size,(page-1)*size+size);
+  $('#tb').innerHTML = slice.map(r=>`<tr data-sn="${r.sn}" class="${r.deleted?'gone':''}">
+    <td class="mono">${r.sn}${r.deleted?' <span class="badge b-gray">已回收</span>':''}</td>
+    <td><div>${r.model_code}</div><div style="color:var(--sub);font-size:11.6px">${r.model_name}</div></td>
+    <td>${imgCell(r)}</td>
+    <td>${r.factory_code}<div style="color:var(--sub);font-size:11.6px">${r.factory_name}</div></td>
+    <td>${badge(r.online_status,ON)}</td><td>${badge(r.register_status,REG)}</td>
+    <td>${badge(r.bind_status,BIND)}${r.bind_target?`<div class="mono" style="font-size:11.4px;color:var(--sub)">${r.bind_target}</div>`:''}</td>
+    <td>${badge(r.recover_status,REC)}</td>
+    <td class="mono">${sent(r.produce_time)?'<span style="color:var(--mut)">未同步</span>':r.produce_time}</td>
+    <td class="mono">${r.create_time}</td>
+    <td class="mono">${r.update_time}</td>
+    <td class="ver mono">v${r.version}</td>
+    <td>${r.maintain_user?`<span class="mono">${r.maintain_user}</span>`:'<span style="color:var(--mut)">—</span>'}</td>
+    <td class="ops"><button data-a="view" data-sn="${r.sn}">查看</button><span class="sep">|</span>
+      <button data-a="edit" data-sn="${r.sn}">编辑</button><span class="sep">|</span>
+      <button data-a="rec" data-sn="${r.sn}" class="danger">回收</button></td></tr>`).join('')
+    || `<tr><td colspan="14"><div class="empty">${filtered===null
+        ? '尚未查询 —— 平台禁止无条件全量翻页（<code>400 / 4004</code>）。请至少填写 SN / 型号 / 创建时间范围后点「查询」。'
+        : '无匹配数据 —— 平台只镜像外部推送的维度状态，此处为空说明筛选条件下没有设备'}</div></td></tr>`;
+  $('#total').textContent=list.length;
+  $('#sum').textContent=(filtered?'命中 ':'')+`${list.length} 条 · 第 ${page}/${pages} 页 · 按创建时间倒序`;
+  $('#pgInfo').textContent=`${page} / ${pages}`;
+  $('#prev').disabled=page<=1; $('#next').disabled=page>=pages;
+  simTarget=slice[0]?slice[0].sn:simTarget;
+}
+$('#btnQuery').onclick=()=>{ page=1; runQuery(); };
+$('#btnReset').onclick=()=>{ $$('#fSn,#fCs,#fCe,#fModel,#fOnline,#fReg,#fBind,#fRec').forEach(e=>e.value='');
+  $('#fDel').checked=false; page=1; filtered=null; draw(); toast('筛选条件已重置'); };
+$('#prev').onclick=()=>{ page=Math.max(1,page-1); runQuery(); };
+$('#next').onclick=()=>{ page=page+1; runQuery(); };
+$('#ps').onchange=()=>{ size=+$('#ps').value; page=1; runQuery(); };
+$('#jump').onchange=()=>{ page=Math.max(1,+$('#jump').value||1); runQuery(); };
+$('#fSn').onkeydown=e=>{ if(e.key==='Enter'){ page=1; runQuery(); } };
+
+/* -------------------------------------------------- 操作：查看（EP-010 一起读） */
+$('#tb').onclick=e=>{ const b=e.target.closest('button'); if(!b) return;
+  const r=rows.find(x=>x.sn===b.dataset.sn); if(!r) return;
+  if(b.dataset.a==='view') openView(r);
+  if(b.dataset.a==='edit') openEdit(r);
+  if(b.dataset.a==='rec') openConfirm(r);
+};
+function openView(r){
+  $('#dTitle').innerHTML=`设备详情 <span class="mono" style="font-size:11.5px;color:var(--mut);font-weight:400">${r.sn}</span>`;
+  const recs=records.filter(x=>x.sn===r.sn).sort((a,b)=>a.create_time<b.create_time?1:-1);
+  const out=['sn','model_code','model_name','factory_code','factory_name','produce_time','register_status',
+    'online_status','bind_status','bind_target','bind_time','recover_status','scrap_time','remark','image_url'];
+  const cell=(k,v)=>`<tr><td class="mono">${k}</td><td class="mono">${v}</td></tr>`;
+  const show=k=>{ const v=r[k];
+    if(k.endsWith('_time')) return v===SENT
+      ? '<span style="color:var(--mut)">null ← 库内写哨兵 1970-01-01，出口转 null</span>' : esc(String(v));
+    if(v==='') return '<span style="color:var(--mut)">&quot;&quot;（空串，不是 null）</span>';
+    return esc(String(v)); };
+  $('#dBody').innerHTML=`
+    <div class="sect"><h4>① 对外可见字段（缓存 Value 白名单 15 列 · EP-001 返回集合）</h4>
+      <table><thead><tr><th>字段</th><th>值</th></tr></thead><tbody>
+      ${out.map(k=>cell(k, show(k))).join('')}</tbody></table>
+      <div class="note">响应恒带 <code>Cache-Control: no-store</code>；对外调用方看到的是这一份，看不到下面这些内部列。</div></div>
+    <div class="sect"><h4>② 仅后台可见列（不进缓存、不对外）</h4><div class="kv">
+      <b>id</b><span class="mono">${r.id}</span>
+      <b>version</b><span class="mono">${r.version} · 乐观锁，编辑请求必须回传</span>
+      <b>deleted</b><span class="mono">${r.deleted} · ${r.deleted?'已回收（逻辑删，行仍在库）':'正常'}</span>
+      <b>create_time</b><span class="mono">${r.create_time}</span>
+      <b>update_time</b><span class="mono">${r.update_time} · 供 EP-007 对账比对</span>
+      <b>maintain_user</b><span class="mono">${r.maintain_user||'—'}</span>
+      <b>maintain_time</b><span class="mono">${sent(r.maintain_time)?'—':r.maintain_time}</span>
+      <b>ext_json</b><span class="mono">${r.ext_json} · 外部透传，本期不对外</span></div></div>
+    <div class="sect"><h4>③ 变更流水（EP-010 · 业务事实，不可丢）</h4>
+      <table><thead><tr><th>时间</th><th>来源</th><th>维度</th><th>前值</th><th>后值</th><th>结果</th><th>操作人</th></tr></thead>
+      <tbody>${recs.map(x=>`<tr><td class="mono">${x.create_time}</td><td class="mono">${x.source}</td>
+        <td class="mono">${x.dim_type}</td><td class="mono" style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(x.before_json)}</td>
+        <td class="mono" style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${esc(x.after_json)}</td>
+        <td>${({1:'1 已更新',3:'3 设备不存在',4:'4 未授权来源'})[x.result]}</td>
+        <td class="mono">${x.op_user}</td></tr>`).join('')
+        || '<tr><td colspan="7" style="color:var(--mut)">存在但无记录 → 200 + 空 items（不与 404 混淆）</td></tr>'}</tbody></table>
+      <div class="note">这条流水是「不防业务乱序」缺口下<b>唯一的人工发现手段</b>：外部消息缺 <code>event_time</code>，旧事件后到仍会覆盖新值，只能靠比对前后值察觉后人工纠正。</div></div>
+    <div class="sect"><h4>④ 缓存与维度授权</h4><div class="kv">
+      <b>Redis key</b><span class="mono">device:cache:info:${r.sn}</span>
+      <b>可写该设备各维度的源</b><span class="mono">${dimAuth.map(d=>d[0]+'←'+d[1]).join(' · ')}</span>
+      </div></div>`;
+  $('#mask').classList.add('on'); $('#drawer').classList.add('on');
+  hit({method:'GET', path:`/api/v1/admin/devices/${r.sn}/change-records?page=1&page_size=20`, status:'200 · code 0', cls:'s-ok',
+    req:'Header  Authorization: Bearer <JWT RS256>',
+    res:JSON.stringify({code:0,message:'success',data:{items:recs,total:recs.length,page:1,page_size:20},trace_id:trace()}),
+    eff:`WHERE sn='${r.sn}' ORDER BY create_time DESC<br>⚠️ 该语句<b>不含分区键</b> ⇒ 无分区裁剪，保留期内每月分区各一次索引探查再归并（单 SN 行数有界，成本可接受）。`});
+}
+function esc(x){ return String(x).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+/* -------------------------------------------------- 操作：录入（EP-004） */
+let mode='';
+$('#btnCreate').onclick=()=>openCreate();
+function fieldsHTML(r={}){
+  const i=(id,label,val,ph,extra='')=>`<div class="f2"><label class="${extra.req?'req':''}">${label}</label>
+    <input id="${id}" value="${val??''}" placeholder="${ph||''}" ${extra.ro?'readonly':''}><div class="err" id="e_${id}"></div></div>`;
+  return `<div class="form">
+    ${i('f_sn', mode==='edit'?'设备 SN（取自路径，不可改）':'设备 SN', r.sn, 'PB2026…', mode==='edit'?{ro:1}:{req:1})}
+    ${i('f_model','型号编码 model_code',r.model_code,'PB-10K-2026A')}
+    ${i('f_name','型号名称 model_name',r.model_name,'20000mAh 双口快充')}
+    ${i('f_img','设备图片 image_url',r.image_url,'https://cdn…')}
+    <div class="f2 full"><label>备注 remark</label>
+      <textarea id="f_remark" rows="2">${r.remark??''}</textarea><div class="err" id="e_f_remark"></div></div>
+    ${mode==='edit'?`<div class="f2 full"><label>version（乐观锁，来自列表行，不可改）</label>
+      <input id="f_version" value="${r.version}" readonly><div class="err" id="e_f_version"></div></div>`:''}
+  </div>
+  <div class="note" style="margin-top:6px">${mode==='create'
+    ?'请求体<b>只接受 sn + PROFILE 4 列</b>。状态列与 4 个时间列<b>不接受入参</b>：服务端固定写 <code>register_status=0, online_status=0, bind_status=0, recover_status=0, deleted=0, version=0</code>，时间列写哨兵 <code>1970-01-01 00:00:00</code>；<code>maintain_user/time</code> 由服务端写。请求里塞 <code>online_status</code> 会被拒（<code>400/4002</code> 或 <code>403/4031</code>），<b>不静默忽略</b>。'
+    :'编辑＝<b>全量替换 PROFILE 维度</b>（4 列）＋服务端附带写 <code>maintain_*</code>，其余维度（在线/绑定/回收/出厂）<b>一列都不碰</b>：一次 CAS、一条流水。'}</div>`;
+}
+function openCreate(){
+  mode='create'; lastIdem=key();
+  $('#mTitle').textContent='录入设备（EP-004）';
+  $('#mBody').innerHTML=fieldsHTML({});
+  $('#mFoot').innerHTML=`Idempotency-Key <code class="mono">${lastIdem}</code>
+    <button class="btn" id="again" style="padding:3px 8px;font-size:11.6px;margin-left:6px">用同一 key 重发一次</button>`;
+  $('#mSave').textContent='提交建档'; $('#modal').classList.add('on'); $('#mask').classList.add('on');
+  $('#again').onclick=()=>submitCreate(true);
+}
+function submitCreate(replay=false){
+  const sn=$('#f_sn').value.trim(), model=$('#f_model').value.trim(), name=$('#f_name').value.trim(), img=$('#f_img').value.trim();
+  if(!replay && !sn){
+    $('#e_f_sn').textContent='必填';
+    hit({method:'POST', path:'/api/v1/admin/devices', status:'400 · 4001', cls:'s-bad',
+      req:`Header  Idempotency-Key: ${lastIdem}\nBody    ${JSON.stringify({sn:'', model_code:model, remark:$('#f_remark').value})}`,
+      res:JSON.stringify({code:4001,message:'参数缺失：sn',data:null,trace_id:trace()}),
+      eff:'参数校验在进入事务<b>之前</b>完成 ⇒ 不产生任何 SQL、不占用连接、不写流水。'});
+    toast('400 / 4001 参数缺失：sn','bad'); return;
+  }
+  const body={ sn, model_code:model, model_name:name, image_url:img, remark:$('#f_remark').value };
+  const path='/api/v1/admin/devices';
+  if(replay){
+    hit({method:'POST', path, status:'201 · code 0（同一结果快照）', cls:'s-ok',
+      req:`Header  Idempotency-Key: ${lastIdem}（重发同一请求）\nBody    ${JSON.stringify(body)}`,
+      res:JSON.stringify({code:0,message:'success',data:{sn,version:0},trace_id:trace()}),
+      eff:'命中 <code>device:admin:idem:'+lastIdem+'</code> 的首次结果快照 ⇒ <b>返回同一结果，而不是重复建档、也不是给用户一个 409/4090</b>。<br><code>uk_sn</code> 只能挡「不同请求撞同一 SN」，挡不住「同一请求被重发」。'});
+    toast('同一 Idempotency-Key 重发 → 返回首次结果（幂等）','ok'); return;
+  }
+  const dup=rows.find(r=>r.sn===sn);
+  if(dup){
+    hit({method:'POST', path, status:'409 · 4090', cls:'s-bad',
+      req:`Header  Idempotency-Key: ${lastIdem}\nBody    ${JSON.stringify(body)}`,
+      res:JSON.stringify({code:4090,message:'SN 已存在',data:null,trace_id:trace()}),
+      eff:'INSERT 触发 <code>uk_sn</code> 唯一键冲突 ⇒ 409，<b>不覆盖既有设备</b>。'});
+    toast('409 / 4090 该 SN 已存在','bad'); return;
+  }
+  const r=R(sn, model||'PB-10K-2026A', name||'—', '', '', SENT,0,0,0,'',SENT,0,SENT,
+    body.remark, img, 'zhangsan', now(), 0,0, now(), now());
+  rows.unshift(r);
+  records.unshift({ sn, source:'ADMIN', msg_id:'idem:'+lastIdem, msg_type:'PROFILE_CHANGE', dim_type:'PROFILE',
+    before_json:'{}', after_json:JSON.stringify({model_code:model,remark:body.remark}), result:1, op_user:'zhangsan',
+    create_time:now() });
+  hit({method:'POST', path, status:'201 · code 0', cls:'s-ok',
+    req:`Header  Authorization: Bearer <JWT RS256>\nHeader  Idempotency-Key: ${lastIdem}\nBody    ${JSON.stringify(body)}`,
+    res:JSON.stringify({code:0,message:'created',data:{sn,version:0},trace_id:trace()}),
+    eff:`INSERT device_info（状态列固定 0 / 时间列哨兵）+ INSERT 流水 result=1（同事务）<br>
+      afterCommit → <b>DEL device:cache:info:${sn}</b>（清掉可能残留的 <code>__EMPTY__</code> 哨兵，否则新设备建好后对外最长 60s 仍 404）`});
+  rdCacheSet(sn,'（建档后已删除，下次查询回源）');
+  closeModal(); $('#fSn').value=sn; $('#fCs').value=''; $('#fCe').value=''; page=1; runQuery();
+  flash(sn); toast('录入成功 201 · 列表已定位到这台设备，并清除了空值哨兵','ok');
+}
+/* -------------------------------------------------- 操作：编辑（EP-005，乐观锁） */
+function openEdit(r){
+  mode='edit';
+  $('#mTitle').innerHTML=`编辑设备档案 <span class="mono" style="font-size:11.5px;color:var(--mut);font-weight:400">${r.sn}</span>`;
+  $('#mBody').innerHTML=fieldsHTML(r)+`<div class="note b" style="margin-top:6px">当前库内 <code>version=${r.version}</code>。
+    如果你打开弹窗后、保存前有外部推送进来，<code>version</code> 会先变大，本次 <code>WHERE sn=? AND version=${r.version}</code> 影响行数 0
+    ⇒ <code>409 / 4091</code>「数据已被外部更新，请刷新后重试」。<b>后台不静默重试</b>：静默重试会拿你早已过期的编辑内容覆盖外部最新值。</div>`;
+  $('#mFoot').textContent='成功返回新 version，供连续编辑';
+  $('#mSave').textContent='保存'; $('#modal').classList.add('on'); $('#mask').classList.add('on');
+  $('#modal').dataset.sn=r.sn;
+}
+function submitEdit(){
+  const sn=$('#modal').dataset.sn, r=rows.find(x=>x.sn===sn);
+  const vSent=+$('#f_version').value;
+  const body={ model_code:$('#f_model').value.trim(), model_name:$('#f_name').value.trim(),
+    remark:$('#f_remark').value, image_url:$('#f_img').value.trim(), version:vSent };
+  const path='/api/v1/admin/devices/'+sn;
+  if(vSent!==r.version){
+    hit({method:'PUT', path, status:'409 · 4091', cls:'s-bad',
+      req:'Body    '+JSON.stringify(body),
+      res:JSON.stringify({code:4091,message:'数据已被外部更新，请刷新后重试',data:null,trace_id:trace()}),
+      eff:`UPDATE … WHERE sn='${sn}' AND version=${vSent} → <b>affected rows=0</b>（库内已是 v${r.version}）<br>事务回滚，<b>主档与流水零变更</b>；冲突计入乐观锁冲突率指标（>1% 告警）。`});
+    toast('409 / 4091 版本冲突：外部已改过这台设备','bad'); return;
+  }
+  const before={model_code:r.model_code,model_name:r.model_name,remark:r.remark,image_url:r.image_url};
+  Object.assign(r,{model_code:body.model_code,model_name:body.model_name,remark:body.remark,image_url:body.image_url,
+    maintain_user:'zhangsan', maintain_time:now(), version:r.version+1, update_time:now()});
+  records.unshift({ sn, source:'ADMIN', msg_id:'-', msg_type:'PROFILE_CHANGE', dim_type:'PROFILE',
+    before_json:JSON.stringify(before), after_json:JSON.stringify({model_code:r.model_code,remark:r.remark}),
+    result:1, op_user:'zhangsan', create_time:now() });
+  hit({method:'PUT', path, status:'200 · code 0', cls:'s-ok',
+    req:'Header  Authorization: Bearer <JWT RS256>\nBody    '+JSON.stringify(body),
+    res:JSON.stringify({code:0,message:'success',data:{version:r.version},trace_id:trace()}),
+    eff:`UPDATE device_info SET model_code=?,model_name=?,remark=?,image_url=?,maintain_user='zhangsan',maintain_time=NOW(),version=version+1 WHERE sn=? AND version=${vSent} → 1<br>
+      INSERT 流水 dim_type=PROFILE, op_user=zhangsan（一次 CAS、一条流水，<b>不拆两次写</b>：两次 CAS 第二次必然冲突）<br>afterCommit → DEL device:cache:info:${sn}`});
+  rdCacheSet(sn,'（编辑提交后已删除）');
+  closeModal(); runQuery(false); flash(sn);
+  toast('已保存 · 新 version='+r.version+'（其余维度未被触碰）','ok');
+}
+/* -------------------------------------------------- 操作：回收（EP-009 逻辑删） */
+function openConfirm(r){
+  $('#confirm').dataset.sn=r.sn;
+  $('#cBody').innerHTML=`<div class="kv"><b>设备 SN</b><span class="mono">${r.sn}</span>
+      <b>动作</b><span>逻辑删除 <code>deleted=1</code>（CAS 更新，非物理 DELETE，行仍保留在库）</span>
+      <b>响应</b><span><code>204 No Content</code> —— 统一响应外壳的<b>唯一例外</b>：204 无响应体，因此不违反「JSON 响应必须包装」</span>
+      <b>缓存</b><span>afterCommit <code>DEL device:cache:info:${r.sn}</code>，下次查询重新写 <code>__EMPTY__</code> 哨兵</span></div>
+    <div class="note">回收后：对外查询与后台默认列表<b>都不可见</b>；但<b>外部推送仍可继续更新它的维度列</b>（消费端不过滤 <code>deleted</code>，否则外部重推会被静默丢弃、数据缺口没人发现）。复活只由后台显式操作，本期没有复活入口。</div>
+    <div class="note b">重复回收（已是 <code>deleted=1</code>）返回 <code>404 / 4040</code>，幂等由 <code>version</code> 条件保证，<b>不静默返回 204</b>。</div>`;
+  $('#confirm').classList.add('on'); $('#mask').classList.add('on');
+}
+$('#cOk').onclick=()=>{
+  const r=rows.find(x=>x.sn===$('#confirm').dataset.sn);
+  const path='/api/v1/admin/devices/'+r.sn;
+  if(r.deleted===1){
+    hit({method:'DELETE', path, status:'404 · 4040', cls:'s-bad', req:'Header  Authorization: Bearer <JWT RS256>\nHeader  If-Match 隐含 version='+r.version,
+      res:JSON.stringify({code:4040,message:'device not found',data:null,trace_id:trace()}),
+      eff:'已逻辑删的行按「不存在」处理，避免同一动作被反复计入流水。'});
+    toast('404 / 4040 该设备已是回收状态','warn'); closeConfirm(); return;
+  }
+  const v=r.version; r.deleted=1; r.version+=1; r.update_time=now();
+  r.maintain_user='zhangsan'; r.maintain_time=now();
+  records.unshift({ sn:r.sn, source:'ADMIN', msg_id:'-', msg_type:'-', dim_type:'-',
+    before_json:'{"deleted":0}', after_json:'{"deleted":1}', result:1, op_user:'zhangsan', create_time:now() });
+  hit({method:'DELETE', path, status:'204 · 无响应体', cls:'s-ok',
+    req:'Header  Authorization: Bearer <JWT RS256>',
+    res:'(empty body) —— 204',
+    eff:`UPDATE device_info SET deleted=1,maintain_user='zhangsan',version=version+1 WHERE sn=? AND version=${v} → 1<br>INSERT 流水 + afterCommit DEL device:cache:info:${r.sn}`});
+  rdCacheSet(r.sn,'（回收提交后已删除）');
+  closeConfirm(); runQuery(false); toast('已回收（逻辑删）· 外部推送仍会更新它的维度','ok'); flash(r.sn);
+};
+$('#cCancel').onclick=closeConfirm; $('#cClose').onclick=closeConfirm;
+function closeConfirm(){ $('#confirm').classList.remove('on'); maskOff(); }
+function closeModal(){ $('#modal').classList.remove('on'); maskOff(); }
+$('#mClose').onclick=closeModal; $('#mCancel').onclick=closeModal;
+$('#mSave').onclick=()=>{ mode==='create'?submitCreate():submitEdit(); };
+$('#dClose').onclick=()=>{ $('#drawer').classList.remove('on'); maskOff(); };
+$('#mask').onclick=()=>{ $('#drawer').classList.remove('on'); closeModal(); closeConfirm(); };
+function maskOff(){ if(!$('#modal').classList.contains('on')&&!$('#drawer').classList.contains('on')
+  &&!$('#confirm').classList.contains('on')) $('#mask').classList.remove('on'); }
+
+/* -------------------------------------------------- 缓存面板（后台只写删，不读） */
+const cacheEvents=[];
+function rdCacheSet(sn,text){
+  cacheEvents.unshift({ sn, text, at:now() });
+  if(cacheEvents.length>8) cacheEvents.pop();
+  drawCache();
+}
+function drawCache(){
+  $('#cacheBox').innerHTML=`<div class="cap">REDIS 缓存实况 · device:cache:info:*</div>` +
+    (cacheEvents.length
+      ? cacheEvents.map(c=>`<div class="k"><span class="key mono">${c.sn}</span><span class="why">${esc(c.text)}</span></div>`).join('')
+        + `<div class="idle" style="margin-top:6px">本进程<b>不读</b>缓存（缓存只服务对外点查 EP-001）；这里是各操作在事务提交后发出的 <code>DEL</code>。下一次对外查询未命中会回源 DB 并回填（TTL 1800s + 0~300s 抖动）。</div>`
+      : `<div class="idle">尚无缓存失效动作。建档 / 编辑 / 回收 / 外部推送提交后，被 <code>DEL</code> 的 key 会列在这里。</div>`);
+}
+
+/* -------------------------------------------------- 演示控制：外部推送（造冲突） */
+$('#simPush').onclick=()=>{
+  const r=rows.find(x=>x.sn===simTarget)||rows[0];
+  const before=r.online_status;
+  r.online_status=r.online_status===1?2:1; r.version+=1; r.update_time=now();
+  records.unshift({ sn:r.sn, source:'DEVICE_PLAT', msg_id:'ext-'+Date.now().toString().slice(-6), msg_type:'ONLINE_CHANGE',
+    dim_type:'ONLINE', before_json:JSON.stringify({online_status:before}),
+    after_json:JSON.stringify({online_status:r.online_status}), result:1, op_user:'-', create_time:now() });
+  hit({method:'MQ', path:'device.info.change · ONLINE_CHANGE（外部推送，非本页面触发）', status:'消费成功 → ack', cls:'s-ok',
+    req:JSON.stringify({msg_id:'ext-demo-'+r.version, source:'DEVICE_PLAT', biz_id:r.sn, event_time:null,
+      msg_type:'ONLINE_CHANGE', data:{online_status:r.online_status}}),
+    res:'事务提交（幂等记录 + 主档 CAS + 流水 同一事务）→ afterCommit DEL 缓存 → 手动提交 offset',
+    eff:`UPDATE device_info SET <b>online_status</b>=?, version=version+1 WHERE sn=? AND version=${r.version-1} → 1<br>
+      列名只来自 <code>DimSpec</code> 白名单 ⇒ <b>只碰在线维度这一列</b>，后台刚写的 remark/maintain_* 原样保留（这就是「分维度动态列」的必要性，乐观锁只是兜底）<br>
+      副作用：本页列表的 version 变成 <span class="mono">v${r.version}</span> —— 若你手上还开着这台设备的编辑弹窗（拿的是旧 version），点保存就会看到 <b>409/4091</b>。`});
+  runQuery(false); flash(r.sn);
+  rdCacheSet(r.sn,'外部推送消费提交后 DEL');
+  toast(`外部推送：${r.sn} 在线状态→${r.online_status}，version=v${r.version}`,'warn');
+};
+$('#simPush2').onclick=()=>{
+  const r=rows.find(x=>x.sn===simTarget)||rows[0];
+  hit({method:'MQ', path:'device.info.change · PROFILE_CHANGE（source=UNKNOWN_SYS）', status:'未授权 → ack', cls:'s-warn',
+    req:JSON.stringify({msg_id:'ext-demo-x1', source:'UNKNOWN_SYS', biz_id:r.sn, event_time:null,
+      msg_type:'PROFILE_CHANGE', data:{model_code:'PB-FAKE'}}),
+    res:'WARN 日志 + unauthorized_source 计数 +1 → 正常 ack（不进事务、不留痕）',
+    eff:`<code>(PROFILE, UNKNOWN_SYS)</code> 不在授权表 ⇒ 守卫拒绝。<b>不抛异常</b>：抛异常会卡住分区、整个 Topic 积压。<br>
+      运维关注点：新接入外部源<b>必须先配 <code>device_dim_source_auth</code></b>，否则它的消息被静默拒，只有计数没有流水（配置 60s 生效）。`});
+  toast('未授权来源被守卫拒绝（4031 语义，消费侧计数 + ack）','warn');
+};
+function flash(sn){ const tr=document.querySelector(`tr[data-sn="${sn}"]`); if(!tr) return;
+  tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash'); }
+
+/* -------------------------------------------------- 型号下拉 + 初始查询 */
+$('#fModel').innerHTML='<option value="">全部</option>'+[...new Set(rows.map(r=>r.model_code))]
+  .map(m=>`<option value="${m}">${m}</option>`).join('');
+const d=new Date(), p=n=>String(n).padStart(2,'0');
+const fmtD=dt=>`${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())}`;
+$('#fCs').value=fmtD(new Date(d.getTime()-30*864e5)); $('#fCe').value=fmtD(d);
+drawCache();
+$$('.side a.off').forEach(a=>a.onclick=e=>e.preventDefault());
+runQuery(false);
+hit({method:'GET', path:'（等待操作）', status:'—', cls:'s-gray',
+  req:'进页面已默认带「创建时间＝近 30 天」的筛选条件：平台禁止无条件全量翻页（400/4004）。',
+  res:'点「查询 / 录入 / 编辑 / 回收」或行内操作，这里会逐条记录契约调用与其副作用。',
+  eff:'两个「⚙ 演示」按钮用来制造真实并发场景：外部推送改 version（触发 4091）、未授权来源被守卫拒。'});
+drawHits();
+</script>
+</body>
+</html>

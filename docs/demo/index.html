@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设备管理平台 · 操作逻辑演示</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --line:#dfe3e8; --ink:#1f2328; --sub:#5b6572;
+    --kafka:#b45309; --redis:#dc2626; --mysql:#0f766e; --http:#1d4ed8; --guard:#be123c;
+    --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --chip:#eef2f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{padding:22px 26px 14px;background:#fff;border-bottom:1px solid var(--line)}
+  header h1{margin:0 0 6px;font-size:20px}
+  header p{margin:0;color:var(--sub);max-width:1080px}
+  nav{display:flex;flex-wrap:wrap;gap:6px;padding:12px 26px;background:#fff;border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:5}
+  nav button{border:1px solid var(--line);background:var(--chip);border-radius:6px;padding:7px 12px;cursor:pointer;
+    font-size:13px;color:var(--ink)}
+  nav button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  main{padding:18px 26px 60px;max-width:1560px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+  h2{font-size:16px;margin:0 0 10px}
+  h3{font-size:13px;margin:14px 0 6px;color:var(--sub);letter-spacing:.02em}
+  .grid2{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,1fr);gap:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:12px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+  th{background:#f0f3f7;font-weight:600}
+  .tag{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:11.5px;margin:1px 3px 1px 0}
+  .pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11.5px;color:#fff}
+  .p-ok{background:var(--ok)} .p-warn{background:var(--warn)} .p-bad{background:var(--bad)} .p-info{background:var(--http)}
+  /* 架构图 */
+  .arch{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:stretch}
+  .lane{border:1px dashed var(--line);border-radius:8px;padding:8px}
+  .lane>b{display:block;font-size:12px;color:var(--sub);margin-bottom:6px}
+  .box{background:#fff;border:1px solid var(--line);border-left:4px solid var(--ink);border-radius:6px;
+    padding:7px 9px;margin-bottom:7px;font-size:12.5px}
+  .box small{display:block;color:var(--sub);font-size:11.5px}
+  .b-kafka{border-left-color:var(--kafka)} .b-redis{border-left-color:var(--redis)}
+  .b-mysql{border-left-color:var(--mysql)} .b-http{border-left-color:var(--http)}
+  .b-guard{border-left-color:var(--guard)}
+  /* 播放器 */
+  .player{display:grid;grid-template-columns:290px minmax(0,1fr);gap:16px}
+  .steps{border:1px solid var(--line);border-radius:8px;background:#fafbfc;padding:8px;max-height:560px;overflow:auto}
+  .steps li{list-style:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--sub)}
+  .steps li.cur{background:var(--ink);color:#fff}
+  .steps li.done{color:var(--ink)}
+  .steps ol{margin:0;padding:0}
+  .ctrl{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+  .ctrl button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 12px;cursor:pointer}
+  .ctrl button.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .now{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fcfdff;margin-bottom:12px}
+  .now h4{margin:0 0 6px;font-size:14.5px}
+  .now p{margin:0 0 8px}
+  .panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .pnl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .pnl>b{display:block;padding:6px 10px;font-size:12px;background:#f0f3f7;border-bottom:1px solid var(--line)}
+  .pnl>.in{padding:8px 10px}
+  .kv{display:flex;gap:8px;font-size:12.3px;padding:2px 0;border-bottom:1px dotted #e8ecf1}
+  .kv>b{min-width:150px;color:var(--sub);font-weight:500}
+  .hl{background:#fff3cd;border-radius:3px;padding:0 3px}
+  pre{margin:0;background:#0f172a;color:#e2e8f0;padding:9px 10px;border-radius:6px;font-size:12px;overflow:auto;max-height:230px}
+  .log{font-size:12px;line-height:1.5}
+  .log div{padding:2px 0;border-bottom:1px dotted #e8ecf1}
+  .l-INFO{color:var(--sub)} .l-WARN{color:var(--warn)} .l-ERROR{color:var(--bad);font-weight:600}
+  .l-DB{color:var(--mysql)} .l-RD{color:var(--redis)} .l-KF{color:var(--kafka)}
+  .note{background:#fff8e6;border:1px solid #f0d9a0;border-radius:8px;padding:10px 12px;font-size:12.8px;margin-top:12px}
+  .foot{color:var(--sub);font-size:12.2px;padding:0 26px 40px;max-width:1560px}
+  @media(max-width:1180px){.player,.grid2,.panels,.arch{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>设备管理平台 · 操作逻辑演示</h1>
+  <p>本平台是<b>外部设备数据的服务端镜像 + 读加速层</b>：设备在线、出厂注册、绑定、回收报废四个维度全部由外部系统经 Kafka 推送，本系统不做生命周期裁决，只保证<b>落得准、读得快、追得到</b>。下面 8 个场景按真实代码与 <code>.aisdd/workspaces/session_20261029_102105/tech-design.md</code> 的规则编号逐步演示；每一步都可点选跳转。</p>
+</header>
+
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<div class="foot">
+  口径来源：<code>tech-design.md</code> V1.3.0 · <code>data-model/data-model.md</code> V1.1.2 · <code>contracts/api-contract.yaml</code> v1.2.1 · <code>implementation-map.md</code>（19 个 IM 单元）。
+  本页只做静态演示，不连接任何真实 Kafka/MySQL/Redis；明示缺口＝<b>不防业务乱序</b>（外部消息缺 <code>event_time</code>，TD-004）与<b>缓存最终一致</b>（脏读窗口 ≤ 对账周期）。
+</div>
+
+<script>
+/* ---------------------------------------------------------------- 状态模型 */
+const SN = 'PB2026102900001';
+const SENT = '1970-01-01 00:00:00';
+
+function device(rows = 1){
+  const base = { sn:SN, model_code:'PB-10K-2026A', model_name:'20000mAh 双口快充',
+    factory_code:'F-DG-01', factory_name:'东莞一厂', produce_time:'2026-08-11 10:30:00',
+    register_status:1, online_status:0, bind_status:0, bind_target:'', bind_time:SENT,
+    recover_status:0, scrap_time:SENT, remark:'', image_url:'https://cdn.example.com/device/pb-10k-2026a.png',
+    maintain_user:'', maintain_time:SENT, ext_json:'{}', version:0, deleted:0,
+    create_time:'2026-10-29 09:00:00', update_time:'2026-10-29 09:00:00' };
+  return rows ? [ {...base} ] : [];
+}
+function blank(){ return { dev:null, redis:{}, consume:[], record:[], dead:[], auth:AUTH_SEED,
+  offset:-1, logs:[], resp:null, metrics:{}, hl:[] }; }
+const AUTH_SEED = [
+  { dim_type:'FACTORY', source:'ASSET_SYS',  enabled:1 },
+  { dim_type:'ONLINE',  source:'DEVICE_PLAT',enabled:1 },
+  { dim_type:'BIND',    source:'ASSET_SYS',  enabled:1 },
+  { dim_type:'RECOVER', source:'RECOVER_SYS',enabled:1 },
+  { dim_type:'PROFILE', source:'ADMIN',      enabled:1 },
+  { dim_type:'MAINTAIN',source:'ADMIN',      enabled:1 },
+];
+function rd(s,k,v,ttl){ s.redis[k] = { value:v, ttl:ttl ?? '—' }; }
+function del(s,k){ delete s.redis[k]; }
+function log(s,type,text){ s.logs.push({ type, text }); }
+function st0(sn){ return `device:cache:info:${sn}`; }
+function dedup(src,id){ return `mq:dedup:${src}:${id}`; }
+
+/* ---------------------------------------------------------------- 场景定义 */
+const SCEN = [];
+
+SCEN.push({
+  key:'overview', name:'① 平台全景与角色', plain:true,
+  intro:`一句话分工：<b>写侧</b>把外部事实准确落库，<b>读侧</b>把库里的数据快速稳定地给出去，<b>后台</b>让人能查、能改、能排查。正确性建立在三根支柱上：幂等唯一索引（不重）、维度所有权（不错位覆盖）、乐观锁（不丢更新）。`,
+  arch:true,
+  notes:[`三进程共用同一份 <code>device-core</code>（唯一模型、唯一事务入口）与同一个 MySQL、Redis 实例，所以写侧删缓存直接命中同一 key 空间，无需跨进程通知。`,
+         `实体与 Mapper 只能定义在 <code>device-core</code>；<code>device-openapi</code> 永不写库，<code>device-admin</code> 的写必须走 <code>DeviceAdminService → DeviceInfoApplier</code>，禁止进程内各自实现更新逻辑。`]
+});
+
+/* ---------------- 场景 2：正常消费链路 */
+SCEN.push({
+  key:'consume', name:'② 外部变更消费（主链路 EP-006）',
+  intro:`一条 <code>ONLINE_CHANGE</code> 消息从 Kafka 到落库、到删缓存、到提交位点的完整 10 步。<b>这条链路是本项目的主战场</b>，规则 R1/R7/R8/R9/R13 都在此生效。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].version=3; s.dev[0].update_time='2026-10-29 10:00:00';
+    rd(s, st0(SN), '{…缓存值, update_time:10:00:00}', 'ttl 1740s'); s.offset=1023; return s; },
+  steps:[
+    { t:'Kafka 拉到消息', d:'Topic <code>device.info.change</code>，分区键 <code>sn</code> ⇒ 同一设备恒定落在同一分区、分区内有序。消费者组 <code>device-management-ingest</code>。',
+      tags:['EP-006','MQ §1.2'],
+      run(s){ s.msg={ msg_id:'ext-20261029-000001', source:'DEVICE_PLAT', biz_id:SN, event_time:null,
+        msg_type:'ONLINE_CHANGE', data:{ online_status:1 } };
+        log(s,'KF','poll partition=2 offset=1024 key='+SN); } },
+    { t:'信封校验 + data 字段白名单', d:'必填 <code>msg_id/source/biz_id/msg_type</code>；<code>data</code> 的每个 key 必须落在该维度的列白名单内，<b>不在白名单即整体拒绝</b>（不是忽略）。',
+      tags:['R14','§7.3 步 2'],
+      run(s){ log(s,'INFO','envelope ok msg_id=ext-20261029-000001 source=DEVICE_PLAT msg_type=ONLINE_CHANGE'); } },
+    { t:'Redis SETNX 抢处理中键', d:'Key <code>mq:dedup:DEVICE_PLAT:ext-20261029-000001</code>，TTL 24h。<b>语义是"正在处理"而非"已处理"</b>——它只用来廉价挡并发，正确性由下一步的 DB 唯一索引承担。',
+      tags:['R3','TD-002'],
+      run(s){ rd(s, dedup('DEVICE_PLAT','ext-20261029-000001'), 'PROCESSING', 'ttl 86400s');
+        log(s,'RD','SET mq:dedup:DEVICE_PLAT:ext-20261029-000001 NX EX 86400 → 1'); } },
+    { t:'维度所有权守卫', d:'查 <code>device_dim_source_auth</code>（启动全量加载、每 60s 刷新，EP-012）：<code>(ONLINE, DEVICE_PLAT)</code> 已授权 ⇒ 放行。这条守卫是无 <code>event_time</code> 条件下<b>唯一确定的覆盖防线</b>。',
+      tags:['EP-012','TD-004'],
+      run(s){ log(s,'INFO','DimAuthGuard allow dim=ONLINE source=DEVICE_PLAT'); } },
+    { t:'【事务开始】INSERT 幂等记录', d:'先写 <code>mq_consume_record</code>，唯一键 <code>uk_source_msg(source,msg_id)</code>。<b>幂等记录与业务更新必须同一事务</b>：先提交幂等记录再改业务，一旦业务失败，重投会被判重复 ⇒ 数据永久丢失。',
+      tags:['R1','MQ §4.4'],
+      run(s){ s.consume.push({ source:'DEVICE_PLAT', msg_id:'ext-20261029-000001',
+        biz_id:SN, msg_type:'ONLINE_CHANGE', status:1, consume_time:'2026-10-29 10:05:00' });
+        log(s,'DB','INSERT mq_consume_record … (source,msg_id) 唯一键通过'); } },
+    { t:'SELECT 主档取 version', d:'按 <code>sn</code> 取当前行，拿到乐观锁版本 <code>version=3</code>。主档不存在时不建档（除 FACTORY_REGISTER），走流水 <code>result=3</code> 并<b>正常提交</b>。',
+      tags:['FR-003'],
+      run(s){ log(s,'DB','SELECT * FROM device_info WHERE sn=? → version=3'); } },
+    { t:'CAS 更新，只拼本维度列', d:'<code>UPDATE device_info SET online_status=?, version=version+1, update_time=NOW() WHERE sn=? AND version=3</code>。列名只来自 <code>DimSpec</code> 常量白名单，值一律 <code>#{}</code> 绑定 ⇒ <b>别维度的列根本不出现在 SQL 里</b>，所以后台刚写的 <code>remark</code>、外部刚写的 <code>bind_status</code> 不会被抹掉。',
+      tags:['R10','R14','FR-003'],
+      run(s){ const d=s.dev[0]; d.online_status=1; d.version=4; d.update_time='2026-10-29 10:05:00'; s.hl=['online_status','version','update_time'];
+        log(s,'DB','UPDATE device_info SET online_status=1,version=version+1 … affected rows=1'); } },
+    { t:'流水留痕（前后值）', d:'<code>device_info_change_record</code> 写 before/after JSON、<code>result=1 已更新</code>。流水是业务事实（不可丢、供对账与人工纠正），日志是排障链路（可过期），<b>两者不能互相替代</b>。',
+      tags:['FR-006','§9.7'],
+      run(s){ s.record.push({ sn:SN, source:'DEVICE_PLAT', msg_id:'ext-20261029-000001', msg_type:'ONLINE_CHANGE',
+        dim_type:'ONLINE', before_json:'{"online_status":0}', after_json:'{"online_status":1}',
+        result:1, op_user:'-'}); log(s,'DB','INSERT device_info_change_record result=1'); } },
+    { t:'【提交】→ afterCommit 删缓存', d:'缓存删除挂在 <code>TransactionSynchronization.afterCommit</code>。<b>事务内禁止 Redis/HTTP/发消息</b>：未提交就删缓存，并发读会把旧值装回去；回滚了却没删成，对外一直读到脏值。',
+      tags:['R8','Redis §2.2'],
+      run(s){ del(s, st0(SN));
+        log(s,'RD','afterCommit → DEL device:cache:info:'+SN); } },
+    { t:'提交位点（终态之一）', d:'offset 1024 提交。位点<b>只在三种终态提交</b>：成功 / 判定重复 / 死信已落库。事务未提交先提位点 ⇒ 崩溃即永久丢消息。',
+      tags:['R13'],
+      run(s){ s.offset=1024; log(s,'KF','commitSync offset=1024 partition=2'); } },
+  ],
+  notes:[`一致性口径三句话：<b>主动删除负责快，TTL 兜底负责错，定时对账负责补</b>。最长脏读窗口 = min(TTL, 对账周期)，按建议值约 5 分钟量级，<b>不承诺强一致</b>。`,
+         `重试循环在事务<b>外层</b>（R4）：事务内重读拿到同一份 <code>version</code> 快照，重试必然再失败；同 Bean 自调用还会让事务完全失效。`]
+});
+
+/* ---------------- 场景 3：重复投递（两层幂等） */
+SCEN.push({
+  key:'dedup', name:'③ 重复投递挡在两处（FR-002）',
+  intro:`At-Least-One 语义下重复是常态。两层各挡一种情形：Redis 挡<b>正在并发处理</b>的同一条，DB 唯一索引挡<b>已经处理完</b>或 Redis 已失效的那条。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].online_status=1; s.dev[0].version=4;
+    s.consume.push({ source:'DEVICE_PLAT', msg_id:'ext-20261029-000001', biz_id:SN, msg_type:'ONLINE_CHANGE',
+      status:1, consume_time:'2026-10-29 10:05:00' });
+    s.record.push({ sn:SN, source:'DEVICE_PLAT', msg_id:'ext-20261029-000001', msg_type:'ONLINE_CHANGE',
+      dim_type:'ONLINE', before_json:'{"online_status":0}', after_json:'{"online_status":1}', result:1, op_user:'-' });
+    s.offset=1024; return s; },
+  steps:[
+    { t:'A：并发重复 → Redis 挡掉', d:'同一 <code>(source,msg_id)</code> 第二次到达，<code>SETNX</code> 返回 0 ⇒ 判重复。<b>保留键不释放</b>，并直接 ack。',
+      tags:['TD-002','R2'],
+      run(s){ s.msg={ msg_id:'ext-20261029-000001', source:'DEVICE_PLAT', msg_type:'ONLINE_CHANGE', data:{online_status:1} };
+        rd(s, dedup('DEVICE_PLAT','ext-20261029-000001'), 'PROCESSING', 'ttl 86380s');
+        s.metrics.dup_by_redis=(s.metrics.dup_by_redis||0)+1;
+        log(s,'INFO','duplicate by redis → ack（键保留，不释放）'); } },
+    { t:'B：Redis 已丢 → DB 唯一索引兜住', d:'Redis 主从切换丢数据 / 键过期 / <code>flushdb</code> 之后，重投消息进到事务，<code>uk_source_msg</code> 冲突抛 <code>DuplicateKeyException</code>。<b>幂等绝不能建立在可丢失的存储上</b>。',
+      tags:['R1','MQ §4.4'],
+      run(s){ rd(s, dedup('DEVICE_PLAT','ext-20261029-000001'), 'PROCESSING', 'ttl 86400s');
+        log(s,'DB','INSERT mq_consume_record → DuplicateKeyException（uk_source_msg）'); } },
+    { t:'外层捕获 → 整事务回滚 → ack', d:'冲突必须在事务<b>外层</b>捕获：事务内 catch 会把事务标记 rollback-only。<b>重复消息必须 ack、不抛异常</b>（R2）：往外抛等于无限重投 + 积压。主档、流水<b>一条都不许多出来</b>。',
+      tags:['R2','FR-002'],
+      run(s){ s.metrics.dup_by_db=(s.metrics.dup_by_db||0)+1;
+        log(s,'WARN','duplicate by unique index → rollback → ack（不重投）'); } },
+    { t:'跨源同 msg_id 必须两条都处理', d:'唯一键是 <code>(source, msg_id)</code> 而非单 <code>msg_id</code>：<code>msg_id</code> 由外部生产，<b>不能假设跨源全局唯一</b>。若只用 <code>uk_msg_id</code>，后接入系统撞上同号消息会被误判重复、静默丢弃（TC-006-03）。',
+      tags:['附录 C 偏离'],
+      run(s){ s.msg={ msg_id:'ext-20261029-000001', source:'ASSET_SYS', msg_type:'BIND_CHANGE',
+        biz_id:SN, data:{ bind_status:1, bind_target:'STORE-8823', bind_time:'2026-10-29 10:20:00' } };
+        const d=s.dev[0]; d.bind_status=1; d.bind_target='STORE-8823'; d.bind_time='2026-10-29 10:20:00';
+        d.version+=1; d.update_time='2026-10-29 10:20:00'; s.hl=['bind_status','bind_target','bind_time','version'];
+        s.consume.push({ source:'ASSET_SYS', msg_id:'ext-20261029-000001', biz_id:SN, msg_type:'BIND_CHANGE',
+          status:1, consume_time:'2026-10-29 10:20:00' });
+        s.record.push({ sn:SN, source:'ASSET_SYS', msg_id:'ext-20261029-000001', msg_type:'BIND_CHANGE',
+          dim_type:'BIND', before_json:'{"bind_status":0}', after_json:'{"bind_status":1,"bind_target":"STORE-8823"}',
+          result:1, op_user:'-' });
+        del(s, st0(SN)); log(s,'DB','(ASSET_SYS, ext-20261029-000001) 唯一键通过 → 正常落地'); } },
+  ],
+  notes:[`Redis 不可用时写侧行为（TC-006-15）：幂等退化到 DB 唯一索引，<b>数据仍然正确落地</b>——这是 TD-002 选双层而非纯 Redis 的唯一理由。`]
+});
+
+/* ---------------- 场景 4：乐观锁冲突与回滚释放 */
+SCEN.push({
+  key:'conflict', name:'④ 乐观锁冲突：重试 + 回滚必须释放幂等键',
+  intro:`后台运营正在编辑同一台设备，外部同时推来一条状态变更。两者争同一行 ⇒ 后到的那次 CAS 影响行数 0。这一步演示<b>最容易写错的两处</b>：回滚路径忘记释放 Redis 键、重试写在事务内。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].version=7; s.dev[0].remark='外部推送前被人改过';
+    rd(s, dedup('DEVICE_PLAT','ext-20261029-000002'), 'PROCESSING', 'ttl 86400s'); return s; },
+  steps:[
+    { t:'事务内：幂等记录已插入、CAS 命中 0 行', d:'后台刚把 <code>version</code> 从 7 改成 8，消费者的 <code>WHERE version=7</code> 自然匹配不上 ⇒ <b>affected rows = 0</b>，抛 <code>OptimisticConflictException</code>，整个事务回滚（含第 4 步那条幂等记录）。',
+      tags:['FR-003','R9'],
+      run(s){ s.msg={ msg_id:'ext-20261029-000002', source:'DEVICE_PLAT', msg_type:'ONLINE_CHANGE', data:{online_status:2} };
+        log(s,'DB','UPDATE … WHERE sn=? AND version=7 → affected rows=0');
+        log(s,'WARN','OptimisticConflictException → rollback（mq_consume_record 一并回滚）');
+        s.metrics.conflict=(s.metrics.conflict||0)+1; } },
+    { t:'★ 回滚后必须 DEL 幂等键', d:'不删的话，下一次重试会被 Redis 当成"重复消息"直接 ack ⇒ <b>这条消息被吞掉，数据永久不落地</b>。落点在事务外层或 <code>afterCompletion</code> 判 <code>STATUS_ROLLED_BACK</code>。',
+      tags:['R3','mq §3.1'],
+      run(s){ del(s, dedup('DEVICE_PLAT','ext-20261029-000002'));
+        log(s,'RD','DEL mq:dedup:DEVICE_PLAT:ext-20261029-000002  ← 回滚路径释放'); } },
+    { t:'事务外层退避重试（带 jitter）', d:'<code>backoff = 50ms × 2^n</code>，± 0.2 抖动，总预算 1500ms。<b>缺 jitter 时并发同 SN 的重试会同步共振、反复撞同一版本</b>；总预算必须 <code>max.poll.interval.ms</code>，否则重试把消费线程拖到被踢出消费组。',
+      tags:['R4','§11.1'],
+      run(s){ rd(s, dedup('DEVICE_PLAT','ext-20261029-000002'), 'PROCESSING', 'ttl 86400s');
+        s.metrics.retry=(s.metrics.retry||0)+1; log(s,'INFO','backoff 50ms×2^0×jitter → 第 2 次尝试（重试预算内）'); } },
+    { t:'第二次 CAS 成功 → 正常收尾', d:'重新 SELECT 拿到 <code>version=8</code>，CAS 命中 ⇒ 只更新 <code>online_status</code>，<b>后台写的 <code>remark</code> 原样保留</b>（分维度动态列的价值在此体现）。',
+      tags:['R10'],
+      run(s){ const d=s.dev[0]; d.online_status=2; d.version=9; d.update_time='2026-10-29 10:31:00';
+        s.hl=['online_status','version']; s.consume.push({ source:'DEVICE_PLAT', msg_id:'ext-20261029-000002',
+          biz_id:SN, msg_type:'ONLINE_CHANGE', status:1, consume_time:'2026-10-29 10:31:00' });
+        s.record.push({ sn:SN, source:'DEVICE_PLAT', msg_id:'ext-20261029-000002', msg_type:'ONLINE_CHANGE',
+          dim_type:'ONLINE', before_json:'{"online_status":1}', after_json:'{"online_status":2}', result:1, op_user:'-' });
+        del(s, st0(SN)); s.offset=1025;
+        log(s,'DB','UPDATE … version=8 → affected rows=1；DEL cache；commitSync offset=1025'); } },
+  ],
+  notes:[`<b>两侧的失败策略必须不同（R5）</b>：消费者退避重试 ≤ <code>max-retry</code>；后台直接 <code>409/4091</code>「数据已被外部更新，请刷新后重试」，<b>绝不静默重试</b>——静默重试会拿用户早已过期的编辑内容覆盖外部最新值。`,
+         `乐观锁冲突率 &gt; 1% 触发告警：突增通常说明外部在并发刷数，或维度列分组配错了。`]
+});
+
+/* ---------------- 场景 5：死信与重放 */
+SCEN.push({
+  key:'dead', name:'⑤ 重试超限 → 死信 → 人工重放（EP-011）',
+  intro:`只有<b>不可重试</b>异常和<b>重试超限</b>才进死信。死信必须可查询、可重放、有管理入口（MQ §3.3【强制】）。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].version=20; s.dev[0].deleted=1;
+    rd(s, dedup('RECOVER_SYS','ext-20261029-000009'), 'PROCESSING', 'ttl 86390s'); return s; },
+  steps:[
+    { t:'CAS 连续失败 3 次，超 max-retry', d:'<code>device.ingest.max-retry=3</code> 用尽。设备已逻辑删除仍接受维度更新（R6），但这里持续冲突，不能再拖。',
+      tags:['R13','FR-001'],
+      run(s){ s.metrics.dead_in=(s.metrics.dead_in||0)+1; log(s,'ERROR','retry exhausted (3/3) → 准备落死信'); } },
+    { t:'INSERT mq_dead_letter(status=0) + 告警 → ack', d:'原始消息体整条存 <code>content</code>（上限 256KB，超限消息直接落死信）。<b>落库成功才 ack</b>：先 ack 再落库等于消息人间蒸发。',
+      tags:['R12','§9.6'],
+      run(s){ del(s, dedup('RECOVER_SYS','ext-20261029-000009'));
+        s.dead.push({ id:1, msg_id:'ext-20261029-000009', source:'RECOVER_SYS', topic:'device.info.change',
+          consumer_group:'device-management-ingest', partition_no:2, offset_no:1088, msg_key:SN,
+          fail_reason:'OptimisticConflict: retry exhausted', retry_count:3, status:0, handle_user:'', handle_time:'',
+          create_time:'2026-10-29 11:02:00' });
+        log(s,'DB','INSERT mq_dead_letter status=0 ；ALERT dead_letter.count+1 ；commitSync'); } },
+    { t:'后台查列表 → 查详情', d:'列表 <code>GET /api/v1/admin/mq/dead-letters</code> <b>不返回 content</b>：原始消息体可达数百 KB，列表全带会打爆响应包；正文只在 <code>GET /…/dead-letters/{id}</code> 给出。',
+      tags:['EP-011'],
+      run(s){ s.resp={ http:'200', body:'{code:0,data:{items:[{id:1,status:0,retry_count:3,…}],total:1},trace_id:"…"}' };
+        log(s,'INFO','admin 查死信列表（JWT 已认证，operator=lisi）'); } },
+    { t:'重放：复用同一个 Applier', d:'<code>POST /api/v1/admin/mq/dead-letters/1/replay</code> ⇒ 走<b>同一套</b>幂等与授权约束，不是另开一条捷径。冲突原因（设备被误删）修正后即可成功，死信置 <code>status=1 已重放</code>。',
+      tags:['FR-001','TC-006-11'],
+      run(s){ const d=s.dev[0]; d.recover_status=1; d.scrap_time='2026-10-29 11:10:00'; d.version+=1; d.deleted=0;
+        s.hl=['recover_status','scrap_time','deleted','version'];
+        s.dead[0].status=1; s.dead[0].handle_user='lisi'; s.dead[0].handle_time='2026-10-29 11:10:00';
+        s.record.push({ sn:SN, source:'RECOVER_SYS', msg_id:'ext-20261029-000009', msg_type:'RECOVER_CHANGE',
+          dim_type:'RECOVER', before_json:'{"recover_status":0}', after_json:'{"recover_status":1}', result:1, op_user:'lisi' });
+        del(s, st0(SN));
+        s.resp={ http:'200', body:'{code:0,data:{replayed:true,newVersion:21},trace_id:"…"}' };
+        log(s,'INFO','replay 成功 → status=1，handle_user=lisi'); } },
+    { t:'同一 id 再重放 → 409/4093', d:'已重放或已丢弃的记录不允许二次处理，防止同一条消息被反复注入流水。',
+      tags:['§9.6'],
+      run(s){ s.resp={ http:'409', body:'{code:4093,message:"dead letter already handled",trace_id:"…"}' };
+        log(s,'WARN','409/4093 拒绝重复重放'); } },
+    { t:'另一种结局：原 msg_id 已成功消费过 → 409/4092', d:'如果幂等表里这条 <code>msg_id</code> 早就成功了，重放会被唯一索引挡下并<b>整事务回滚</b> ⇒ 返回 <code>409/4092</code>，<b>数据不被二次改写</b>（TC-011-02）。',
+      tags:['R1','FR-002'],
+      run(s){ s.resp={ http:'409', body:'{code:4092,message:"replay hits idempotency key",trace_id:"…"}' };
+        log(s,'WARN','409/4092 重放遇幂等冲突 → 主档与流水零变更'); } },
+  ],
+  notes:[`丢弃入口 <code>POST /…/{id}/discard</code> 同样写 <code>handle_user/handle_time</code>，理由进备注——<b>死信持续增多是异常信号，应告警而不是扩容</b>。`]
+});
+
+/* ---------------- 场景 6：读侧查询 */
+SCEN.push({
+  key:'query', name:'⑥ 对外查询：命中、穿透、击穿、降级（EP-001/002）',
+  intro:`读侧是<b>唯一不可控流量入口</b>，所以与写侧进程彻底分离，可各自独立限流与扩容。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].online_status=1; s.dev[0].version=5;
+    rd(s, st0(SN), '{sn:"'+SN+'",online_status:1,…,update_time:"10:00:00"}', 'ttl 1620s'); return s; },
+  steps:[
+    { t:'验签：HMAC-SHA256 + 时间窗', d:'<code>X-App-Key / X-Timestamp / X-Signature</code>，签名串 <code>method\\npath\\ntimestamp\\nbodySha256</code>，时间窗 ±300s。<b>比较用常数时间</b> <code>MessageDigest.isEqual</code>，禁止 <code>String.equals</code>（时序侧信道）。',
+      tags:['EP-001','NFR-003'],
+      run(s){ s.req='GET /api/v1/devices/'+SN+'  X-App-Key:ak_asset  X-Timestamp:1761…';
+        log(s,'INFO','sign verify ok app_key=ak_asset（secret 只从挂载文件读，双值支持轮换）'); } },
+    { t:'缓存命中 → 不产生任何 SQL', d:'一次 <code>GET device:cache:info:{sn}</code> 直接返回。Value = 对外白名单 15 字段 ∪ {<code>update_time</code>}，后者只服务对账、不出现在响应里。',
+      tags:['FR-005','TC-001-01'],
+      run(s){ s.sql=0; s.resp={ http:'200', body:'{code:0,data:{sn:"'+SN+'",online_status:1,…},trace_id:"01J8…"}' };
+        s.headers='Cache-Control: no-store · X-Trace-Id · X-RateLimit-Limit/Remaining/Reset';
+        s.metrics.hit=(s.metrics.hit||0)+1; log(s,'RD','GET '+st0(SN)+' → HIT'); } },
+    { t:'响应字段被裁剪', d:'<b>不返回</b> <code>id / version / deleted / create_time / update_time / maintain_user / maintain_time / ext_json</code>。<code>1970-01-01 00:00:00</code> 哨兵时间在出口转 <code>null</code>，绝不外泄内部约定。',
+      tags:['§9.5'],
+      run(s){ s.resp={ http:'200', body:'{code:0,data:{sn, model_code, model_name, factory_code, factory_name, produce_time,\n  register_status, online_status, bind_status, bind_target, bind_time,\n  recover_status, scrap_time, remark, image_url},message:"success",trace_id:"…"}' };
+        log(s,'INFO','PublicAssembler 白名单裁剪 15 字段'); } },
+    { t:'miss → 抢重建锁 → 回源 → 回填（TTL 带抖动）', d:'<code>SETNX device:lock:cache:rebuild:{sn} EX 3</code> 抢到才回源 DB。回填 TTL = 1800s + random(0~300s)，<b>抖动防雪崩</b>（否则同一时刻大批 key 集体过期）。',
+      tags:['Redis §2.4','§9.4'],
+      run(s){ del(s, st0(SN)); rd(s,'device:lock:cache:rebuild:'+SN,'1','ttl 3s');
+        s.sql=1; log(s,'RD','SETNX rebuild lock → 1'); log(s,'DB','SELECT 白名单列 WHERE sn=? AND deleted=0');
+        rd(s, st0(SN), '{…}', 'ttl 1800s + jitter(0~300s)'); del(s,'device:lock:cache:rebuild:'+SN);
+        s.metrics.miss=(s.metrics.miss||0)+1; } },
+    { t:'穿透防护：不存在的 SN 写 __EMPTY__ 哨兵', d:'同一 key 写哨兵 <code>__EMPTY__</code>，TTL 60s。第二次查询<b>命中哨兵直接 404、不回源</b>——否则不存在的 SN 可以无限把请求打到 DB。',
+      tags:['Redis §2.4','TC-001-03'],
+      run(s){ const k2=st0('PB_NOT_EXIST'); rd(s,k2,'__EMPTY__','ttl 60s'); s.sql=1;
+        s.resp={ http:'404', body:'{code:4040,message:"device not found",data:null,trace_id:"c0a8…"}' };
+        log(s,'RD','SET '+k2+' = __EMPTY__ EX 60 → 下次直接 404'); } },
+    { t:'击穿：20 线程同查一个 miss key', d:'只有 1 个线程拿到重建锁去回源，其余自旋 <code>device.cache.rebuild-spin-times=3</code> 次；<b>自旋超时后降级直查 DB 且不回填</b>（回填会和持锁线程的写竞争，写出更旧的值）。',
+      tags:['§9.4','TC-001-05'],
+      run(s){ rd(s,'device:lock:cache:rebuild:'+SN,'1','ttl 3s'); s.sql=1; s.metrics.spin_fallback=19;
+        log(s,'RD','19/20 线程未抢到锁 → 自旋 3 次 → 降级直查、不回填'); } },
+    { t:'批量查询用 MGET + 一条 IN', d:'<code>POST /api/v1/devices/batch</code>：一次 <code>MGET</code>（禁止循环 GET），miss 集合一次 <code>WHERE sn IN (…) AND deleted=0</code>（禁止 N+1），回填走 Pipeline。<code>missing</code> 只是 <code>items</code> 里 <code>found=false</code> 的摘要，<b>由同一次装配产出</b>，不是第二份判定。',
+      tags:['EP-002','Redis §1.4'],
+      run(s){ s.resp={ http:'200', body:'{code:0,data:{items:[{sn,found:true,info:{…}},{sn,found:false}],missing:["PB_X"]},trace_id:"…"}' };
+        log(s,'RD','MGET ×1 + Pipeline 回填 ×1；SQL IN ×1'); } },
+    { t:'批量超上限 → 400/4003，服务端不拆分', d:'单次上限 <code>device.query.batch-max=100</code>。超限直接拒绝，<b>不替调用方拆批</b>——拆批会把配额放大、把延迟藏起来。',
+      tags:['§5.2'],
+      run(s){ s.resp={ http:'400', body:'{code:4003,message:"batch size exceeds limit 100",trace_id:"…"}' }; } },
+    { t:'依赖超时 → fail-fast 503/5030', d:'Redis 超时（200ms）⇒ 直接回源且不回填；回源也超时 ⇒ <code>503/5030</code>。<b>本期不引入熔断框架</b>，防线由「超时 + 有界连接池 + 对外限流」三者承担；503 只给对外读接口，后台接口宁可 500 也不掩盖故障。',
+      tags:['§11.1','§12.4','TC-OPS-02'],
+      run(s){ s.resp={ http:'503', body:'{code:5030,message:"dependency timeout / unavailable",data:null,trace_id:"…"}' };
+        log(s,'ERROR','redis timeout 200ms → db timeout → fail-fast 5030（不排队等待）'); } },
+    { t:'超配额 → 429/4290 + Retry-After', d:'按 AppKey 配额限流（<code>device.openapi.qps-per-app</code>，无默认值：未配置即拒绝启动）。所有响应恒带 <code>X-RateLimit-*</code>。',
+      tags:['NFR-003','§9.6'],
+      run(s){ s.resp={ http:'429', body:'{code:4290,message:"quota exceeded",trace_id:"…"}', headers:'Retry-After: 2' };
+        log(s,'WARN','429/4290'); } },
+  ],
+  notes:[`对外查询恒返回 <code>Cache-Control: no-store</code>：本系统已是「最终一致 + 对账窗口」，再叠一层 HTTP/CDN 缓存会把两个窗口相加、变得不可观测（附录 C 有意偏离项）。`,
+         `EP-002 用 POST 承载只读批量查询是对「GET 安全幂等」的<b>有意偏离</b>（100 个 SN 放不进 URL）。补偿约束：无副作用、同 body 结果一致、计入同一配额。`]
+});
+
+/* ---------------- 场景 7：后台维护 */
+SCEN.push({
+  key:'admin', name:'⑦ 运营后台：建档、编辑、逻辑删、流水（EP-003~005/009/010）',
+  intro:`后台是<b>唯一有人等待</b>的写入方，因此冲突处理策略与消费者相反：不重试、直接提示刷新。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].version=12;
+    rd(s, st0(SN), '{…}', 'ttl 1500s'); return s; },
+  steps:[
+    { t:'鉴权：只接受 RS256', d:'JWT 走 <code>Authorization: Bearer</code>。<b>算法由公钥解码器固定</b>，绝不从 token 头 <code>alg</code> 反推（否则 <code>none</code> 与「拿公钥当 HMAC secret 签 HS256」两种算法混淆攻击直接放行）；<code>iss/aud/exp</code> 三项全校验。',
+      tags:['TC-SEC-03','§5.2'],
+      run(s){ log(s,'INFO','jwt verified alg=RS256 iss/aud/exp ok → operator=zhangsan（拼音账号）'); } },
+    { t:'列表必须带高区分度筛选条件', d:'无条件全量翻页 → <code>400/4004</code>；深翻页 offset 超 <code>device.admin.max-offset=10000</code> → <code>400/4002</code>。<code>sn_prefix</code> 只允许<b>右模糊</b>（走 <code>uk_sn</code>），禁 <code>%kw%</code>。列表项<b>含 version</b>，供乐观锁使用。',
+      tags:['EP-003','MySQL §1.2'],
+      run(s){ s.resp={ http:'200', body:'{code:0,data:{items:[{sn,online_status:1,version:12,…}],total:1,page:1,page_size:20},trace_id:"…"}' }; },
+      bad:true },
+    { t:'新增：Idempotency-Key + 只收 PROFILE 列', d:'<code>POST /api/v1/admin/devices</code> 请求体<b>只接受</b> <code>sn</code> + <code>model_code/model_name/remark/image_url</code>；状态列与四个时间列<b>不接受入参</b>，服务端固定 <code>register_status=0, online_status=0, bind_status=0, recover_status=0, version=0</code> + 时间写哨兵。成功 <code>201</code>。',
+      tags:['EP-004','TC-004-04'],
+      run(s){ s.dev.push({ ...device()[0], sn:'PB2026102900002', version:0, online_status:0, register_status:0,
+        bind_status:0, recover_status:0, produce_time:SENT, bind_time:SENT, scrap_time:SENT, maintain_user:'zhangsan' });
+        s.record.push({ sn:'PB2026102900002', source:'ADMIN', msg_id:'idem:8f2c…', msg_type:'PROFILE_CHANGE',
+          dim_type:'PROFILE', before_json:'{}', after_json:'{"model_code":"PB-10K-2026A"}', result:1, op_user:'zhangsan' });
+        s.resp={ http:'201', body:'{code:0,data:{sn:"PB2026102900002",version:0},trace_id:"…"}' };
+        log(s,'INFO','EP-004 create sn=PB2026102900002 operator=zhangsan'); } },
+    { t:'建档必须顺手 DEL 缓存哨兵', d:'该 SN 可能已被查过并留下 <code>__EMPTY__</code>（最长 60s）。不删 ⇒ 新设备建好后对外仍 404（TC-004-03）。',
+      tags:['§11.2 缺陷 9'],
+      run(s){ del(s, st0('PB2026102900002')); rd(s,'device:admin:idem:8f2c…','{首次结果快照}','ttl 24h');
+        log(s,'RD','DEL device:cache:info:PB2026102900002（清 __EMPTY__ 哨兵）'); } },
+    { t:'同 Idempotency-Key 重发 → 返回同一结果', d:'<code>uk_sn</code> 只能挡「不同请求撞同一 SN」，挡不住「同一请求被重发」。后者应命中 <code>device:admin:idem:{key}</code> 快照、返回<b>首次结果</b>，而不是给用户一个 <code>409/4090</code>。',
+      tags:['HTTP §9.1','TC-004-02'],
+      run(s){ s.resp={ http:'201', body:'{code:0,data:{sn:"PB2026102900002",version:0},trace_id:"…"}（同一快照，不重复建档）' };
+        log(s,'INFO','idempotency snapshot hit'); } },
+    { t:'编辑 PROFILE：一次 CAS、一条流水', d:'<code>PUT /api/v1/admin/devices/{sn}</code> 带 <code>version</code>。PROFILE 与 MAINTAIN 在同一次请求内一起更新 ⇒ <b>一次 CAS、一个流水条目</b>（拆两次写，第二次必然版本冲突）。成功后返回<b>新 version</b> 供连续编辑，并删缓存。',
+      tags:['EP-005','§8.4 规则 3'],
+      run(s){ const d=s.dev[0]; d.remark='门店 A 备用机'; d.version=13; d.maintain_user='zhangsan';
+        d.maintain_time='2026-10-29 12:00:00'; d.update_time='2026-10-29 12:00:00';
+        s.hl=['remark','version','maintain_user','maintain_time']; del(s, st0(SN));
+        s.record.push({ sn:SN, source:'ADMIN', msg_id:'-', msg_type:'PROFILE_CHANGE', dim_type:'PROFILE',
+          before_json:'{"remark":""}', after_json:'{"remark":"门店 A 备用机"}', result:1, op_user:'zhangsan' });
+        s.resp={ http:'200', body:'{code:0,data:{version:13},trace_id:"…"}' };
+        log(s,'DB','UPDATE device_info SET model_code=?,model_name=?,remark=?,image_url=?,maintain_user=?,maintain_time=?,version=version+1 WHERE sn=? AND version=12 → 1'); } },
+    { t:'用过期 version 编辑 → 409/4091，不静默重试', d:'另一个运营手里还是 <code>version=12</code> ⇒ 影响行数 0 ⇒ 直接提示刷新。后台静默重试会用<b>过期编辑内容覆盖外部最新值</b>，所以这里刻意不重试（R5）。',
+      tags:['FR-003','R5'],
+      run(s){ s.resp={ http:'409', body:'{code:4091,message:"数据已被外部更新，请刷新后重试",trace_id:"…"}' };
+        s.metrics.conflict_admin=(s.metrics.conflict_admin||0)+1; log(s,'WARN','409/4091 版本冲突（主档零变更）'); } },
+    { t:'逻辑删除 → 204 无响应体', d:'CAS 置 <code>deleted=1</code> + 删缓存。204 是统一外壳的<b>唯一例外</b>（无体因此不违反「JSON 响应必须包装」）。重复删除返回 <code>404/4040</code>，幂等由 <code>version</code> 保证而非静默 204。',
+      tags:['EP-009','§9.6 例外'],
+      run(s){ const d=s.dev.find(x=>x.sn==='PB2026102900002'); d.deleted=1; d.version+=1; s.hl=['deleted','version'];
+        del(s, st0('PB2026102900002')); s.resp={ http:'204', body:'（无响应体）' };
+        log(s,'RD','DEL device:cache:info:PB2026102900002 → 下次查询重新写 __EMPTY__'); } },
+    { t:'删掉后外部仍可推：维度更新但不复活（R6）', d:'消费端<b>不过滤 deleted</b>：过滤会让外部重推被静默丢弃、数据缺口没人发现。逻辑删只影响查询侧可见性，复活只由后台显式操作。',
+      tags:['R6','TC-006-12'],
+      run(s){ const d=s.dev.find(x=>x.sn==='PB2026102900002'); d.online_status=1; d.version+=1; s.hl=['online_status','version'];
+        s.record.push({ sn:'PB2026102900002', source:'DEVICE_PLAT', msg_id:'ext-20261029-000077', msg_type:'ONLINE_CHANGE',
+          dim_type:'ONLINE', before_json:'{"online_status":0}', after_json:'{"online_status":1}', result:1, op_user:'-' });
+        log(s,'INFO','deleted=1 仍更新维度列并留痕；deleted 不被消费端修改'); } },
+    { t:'变更流水：排查用，也是乱序缺口的兜底', d:'<code>GET /api/v1/admin/devices/{sn}/change-records</code>，走 <code>idx_sn_create_time</code>。设备不存在 → <code>404/4040</code>；设备存在但无记录 → <code>200</code> + 空 <code>items</code>（不混淆「查不到」与「没有记录」）。',
+      tags:['EP-010','TC-006-13'],
+      run(s){ s.resp={ http:'200', body:'{code:0,data:{items:[{create_time,source,msg_id,msg_type,dim_type,before_json,after_json,result,op_user}],total:4,page:1,page_size:20}}' };
+        log(s,'INFO','流水按 create_time DESC 返回（乱序缺口的唯一发现手段＝人工比对前后值）'); } },
+  ],
+  notes:[`后台可见列比对外多 <code>version / deleted / create_time / update_time / maintain_user / maintain_time / ext_json</code>；<b>缓存 Value 永远只是「对外白名单 ∪ update_time」</b>，这一条不变式保证不会有两份字段清单互相漂移。`,
+         `本期<b>不做细粒度角色矩阵</b>（附录 E #13）：越权风险目前只由「已认证 + 维度授权表」两层承担。`]
+});
+
+/* ---------------- 场景 8：定时任务与隐形入口 */
+SCEN.push({
+  key:'cron', name:'⑧ 隐形入口：对账、归档、分区预建、授权刷新（EP-007/008/012/013）',
+  intro:`这四个入口最容易在设计里被漏掉，却决定了<b>数据留存与查询正确性</b>。ingest 可多实例水平扩容 ⇒ 每个任务都必须先抢跨实例互斥锁。`,
+  init(){ const s=blank(); s.dev=device(); s.dev[0].update_time='2026-10-29 13:00:00';
+    rd(s, st0(SN), '{…update_time:"12:00:00"}（脏值）', 'ttl 1200s');
+    rd(s,'device:cron:watermark:cache-reconcile','2026-10-29 12:55:00','ttl 168h'); return s; },
+  steps:[
+    { t:'任务互斥锁：SETNX device:lock:cron:{job}', d:'TTL = 周期 × <code>device.cron.lock-ttl-ratio(0.8)</code>。抢不到直接跳过本轮并记跳过计数。Spring <code>@Scheduled</code> 是<b>每实例独立触发</b>的，没有这把锁两个实例会重复 MGET/DEL（对账自身变成写放大源），<code>DROP PARTITION</code> 还会撞元数据锁。',
+      tags:['G-001','TC-007-03'],
+      run(s){ rd(s,'device:lock:cron:cache-reconcile','instance-A','ttl 240s');
+        log(s,'RD','instance-A SETNX → 1；instance-B SETNX → 0 → 跳过本轮 + 计数'); } },
+    { t:'增量对账：按 update_time 水位比对', d:'取 <code>device:cron:watermark:cache-reconcile</code> ⇒ 增量查 <code>update_time &gt; 水位</code> 的主档 ⇒ 一次 <code>MGET</code> ⇒ 比对 Value 内的 <code>update_time</code>。水位持久化，进程重启不丢；<b>水位丢失则按 now − 2×周期 冷启动，禁止全表扫</b>。',
+      tags:['EP-007','FR-005'],
+      run(s){ s.sql=1; log(s,'DB','SELECT sn,update_time WHERE update_time > ? LIMIT 500'); } },
+    { t:'修复动作只允许 DEL，禁止回写新值', d:'对账发现脏值或缺失 ⇒ <code>DEL device:cache:info:{sn}</code>。<b>绝不直接写新值</b>：与并发重建竞争会写出更旧的值。单批 ≤ 500，任务时长必须 &lt; 周期 80%。',
+      tags:['§5.2','TC-007-01'],
+      run(s){ del(s, st0(SN)); rd(s,'device:cron:watermark:cache-reconcile','2026-10-29 13:00:00','ttl 168h（每轮续期）');
+        s.metrics.reconcile_fix=1; log(s,'RD','DEL 脏 key ×1（只删不写）→ 下次读回源'); } },
+    { t:'剩余锁时长不足 → 主动截断本轮', d:'锁 TTL 固定，<b>本期不做 watchdog 续期</b>（续期要后台线程 + fencing token，成本高于收益）。不变式：单次任务时长必须 &lt; TTL，所以每批之间检查剩余锁时长，低于 <code>lock-safety-margin-ratio(0.2) × TTL</code> 就截断、下轮续跑；<code>cron.run.duration</code> 越过 TTL×0.8 告警。',
+      tags:['TC-OPS-03','§5.2 G-001'],
+      run(s){ log(s,'WARN','剩余锁时长 < 0.2×TTL → 本轮截断，下轮从水位续跑'); } },
+    { t:'归档清理：分批 DELETE，禁大事务', d:'<code>mq_consume_record</code> 按 <code>consume_time</code> 分批 <code>DELETE … LIMIT 1000</code>，保留 90 天。<b>该表不分区</b>：唯一索引 <code>uk_source_msg</code> 是幂等的硬保证，分区会让全局唯一失效。',
+      tags:['EP-008','NFR-002'],
+      run(s){ log(s,'DB','DELETE FROM mq_consume_record WHERE consume_time < NOW()-INTERVAL 90 DAY LIMIT 1000（循环至影响行数 0）'); } },
+    { t:'流水表按月 DROP PARTITION（秒级）', d:'<code>device_info_change_record</code> 是增长最快的表（估算 ~0.9GB/月），直接 <code>DROP PARTITION p202508</code>。分区名必须由 <code>YearMonth.now()</code> 推算并匹配 <code>^p\\d{6}$</code>，<b>任务不接受任何外部入参</b>——否则一个传入的分区名就能 DROP 掉整月数据且不可恢复（R14）。',
+      tags:['R14','MySQL 分区'],
+      run(s){ log(s,'DB','ALTER TABLE device_info_change_record DROP PARTITION p202508'); } },
+    { t:'误删保护：pmax 非空则本轮禁止 DROP', d:'每月 25 日预建次月分区并校验 <code>pmax</code> 行数。<code>pmax</code> 非空说明有数据漏进了未建分区 ⇒ <b>先补建漏月分区再清理</b>，本轮拒绝 <code>DROP PARTITION</code> 并告警；保留期或批量配成 0/负数时任务拒绝执行，不提供「清空全部」入口。',
+      tags:['TC-008-02','data-model §6.2'],
+      run(s){ log(s,'ERROR','pmax rows=37,112 > 0 → 跳过本轮 DROP + 告警'); s.metrics.pmax_alarm=1; } },
+    { t:'授权表 60s 刷新（EP-012）', d:'新接入外部源<b>必须先配 <code>device_dim_source_auth</code></b>，否则其消息被静默拒（只有计数、没有流水）。配置行数 &lt; 100，启动全量加载进 <code>volatile Map</code> + 每 60s 刷新。本期不提供管理 API，由人工 SQL 维护。',
+      tags:['R-005','附录 E #4'],
+      run(s){ s.auth.push({ dim_type:'PROFILE', source:'ASSET_SYS', enabled:1 });
+        log(s,'INFO','DimAuthCache reload 6 rows → 新源 ASSET_SYS/PROFILE 放行（生效延迟 ≤ 60s）'); } },
+    { t:'探针：liveness 不含外部依赖（EP-013）', d:'独立 management 端口 + 端点显式白名单。<b>liveness 只查自身</b>——若把 DB/Redis/Kafka 检查放进 liveness，一次依赖抖动就会杀掉本该等待恢复的进程，造成雪崩；readiness 才检查依赖、不就绪时摘流量。',
+      tags:['Spring Boot §Actuator'],
+      run(s){ s.resp={ http:'200', body:'liveness: UP  |  readiness: {db:UP, redis:UP, kafka:UP}' };
+        del(s,'device:lock:cron:cache-reconcile'); log(s,'INFO','probe 拉取；任务结束主动释放 cron 锁'); } },
+  ],
+  notes:[`该锁<b>只保证互斥、不保证 exactly-once</b>：EP-007/EP-008 的幂等性仍由「只 DEL 不写库 + 分批删除可重入」承担。实例崩溃时靠 TTL 自然过期，最长损失一轮。`,
+         `不引入 ShedLock / Quartz：只有 2 类任务、周期固定，自建 Redis SETNX 锁足够；也不引入 Canal/Resilience4j/ES/分库分表（<code>tech-design</code> §12.4 不引入清单逐条给了理由与触发条件）。`]
+});
+
+/* ---------------------------------------------------------------- 架构图 */
+function archHTML(){
+  return `<div class="arch">
+    <div class="lane"><b>外部（不受本系统控制）</b>
+      <div class="box b-kafka">🔗 外部生产者<small>资产系统 / 设备平台 / 回收系统</small></div>
+      <div class="box b-http">👤 外部调用方<small>持 AppKey + HMAC 签名</small></div>
+      <div class="box b-http">👨‍💼 运营 / 运维<small>JWT（RS256）</small></div></div>
+    <div class="lane"><b>接入层（三进程分离）</b>
+      <div class="box b-kafka">device-ingest<small>EP-006 Kafka 消费 · EP-007/008 定时任务 · EP-012 授权加载</small></div>
+      <div class="box b-http">device-openapi<small>EP-001/002 对外查询（永不写库）</small></div>
+      <div class="box b-http">device-admin<small>EP-003~005 / 009~011 后台</small></div></div>
+    <div class="lane"><b>业务逻辑层 device-core（唯一模型 · 唯一事务入口）</b>
+      <div class="box b-guard">🛡️ DimAuthGuard<small>维度所有权：谁能写哪一列（无 event_time 下的核心防线）</small></div>
+      <div class="box b-mysql">🔧 DeviceInfoApplier<small>@Transactional：幂等 + 分维度 CAS + 流水</small></div>
+      <div class="box b-redis">📦 DeviceInfoQueryService<small>Cache-Aside · 哨兵 · 重建锁</small></div>
+      <div class="box b-http">📦 DeviceAdminService<small>乐观锁 + maintain_*（复用同一守卫）</small></div></div>
+    <div class="lane"><b>数据访问层</b>
+      <div class="box b-mysql">DeviceInfoMapper<small>动态 &lt;set&gt; 只拼本维度列</small></div>
+      <div class="box b-mysql">Consume/ChangeRecord/DeadLetter Mapper</div>
+      <div class="box b-redis">DeviceInfoCache<small>MGET · Pipeline · afterCommit DEL</small></div></div>
+    <div class="lane"><b>基础设施</b>
+      <div class="box b-kafka">📨 Kafka<small>device.info.change（+.dlq）· 分区键 sn</small></div>
+      <div class="box b-mysql">💾 MySQL 8.0<small>5 张表 · 流水按月 RANGE 分区</small></div>
+      <div class="box b-redis">⚡ Redis<small>缓存 · 幂等键 · 重建锁 · cron 锁 · 水位 · 建档幂等</small></div></div>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------- 渲染 */
+const COL_LABEL = { sn:'sn 设备序列号', model_code:'model_code 型号编码', model_name:'model_name 型号名',
+  factory_code:'factory_code', factory_name:'factory_name', produce_time:'produce_time 生产时间',
+  register_status:'register_status 注册(0未/1已)', online_status:'online_status 在线(0未知/1/2离线)',
+  bind_status:'bind_status 绑定(0/1)', bind_target:'bind_target 绑定目标', bind_time:'bind_time 绑定时间',
+  recover_status:'recover_status 回收报废(0/1/2)', scrap_time:'scrap_time 报废时间', remark:'remark 备注',
+  image_url:'image_url 图片', maintain_user:'maintain_user 维护人', maintain_time:'maintain_time 维护时间',
+  ext_json:'ext_json 扩展', version:'version 乐观锁版本', deleted:'deleted 逻辑删', update_time:'update_time' };
+const OUT_KEYS = ['sn','model_code','model_name','factory_code','factory_name','produce_time','register_status',
+  'online_status','bind_status','bind_target','bind_time','recover_status','scrap_time','remark','image_url'];
+
+function el(h){ const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; }
+function esc(x){ return String(x).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function devicePanel(list, hl){
+  if(!list || !list.length) return `<div class="in" style="color:var(--sub)">device_info：无匹配行</div>`;
+  const cols=['sn','version','deleted','online_status','register_status','bind_status','recover_status',
+    'remark','maintain_user','update_time','bind_target','scrap_time','produce_time'];
+  return `<div class="in" style="overflow:auto"><table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${list.map(d=>`<tr>${cols.map(c=>`<td class="${hl.includes(c)?'hl mono':'mono'}">${esc(fmt(d[c]))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <div style="color:var(--sub);font-size:11.5px;margin-top:5px">黄色＝本步被改写的列 · 对外响应只出白名单 15 列：${OUT_KEYS.length} 个（<code>version/deleted/maintain_*/ext_json/create_time/update_time</code> 不对外）</div></div>`;
+}
+function fmt(v){ return (typeof v==='object'&&v!==null)?JSON.stringify(v):(v===null||v===undefined?'—':v); }
+
+function redisPanel(redis){
+  const ks=Object.keys(redis);
+  if(!ks.length) return `<div class="in" style="color:var(--sub)">Redis：当前无相关 key</div>`;
+  return `<div class="in">${ks.map(k=>`<div class="kv"><b class="mono">${esc(k)}</b><span class="mono">${esc(redis[k].value)} · ${esc(redis[k].ttl)}</span></div>`).join('')}</div>`;
+}
+function rowsPanel(title, rows, keys){
+  if(!rows.length) return `<h3>${title}</h3><div class="in" style="color:var(--sub);font-size:12px">（空）</div>`;
+  return `<h3>${title} · ${rows.length} 行</h3><div class="in" style="overflow:auto"><table><thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${keys.map(k=>`<td class="mono">${esc(fmt(r[k]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function statusLabel(st){ return {0:'0 待处理',1:'1 已重放/成功',2:'2 已丢弃/失败',3:'3 已进死信'}[st] ?? st; }
+const STAT={ '4':'4 未授权来源', '3':'3 设备不存在', '1':'1 已更新' };
+
+let cur=0, idx=0, timer=null;
+
+function buildState(sc){
+  const s = sc.init ? sc.init() : blank();
+  sc.steps.slice(0, idx+1).forEach(st=> st.run && st.run(s));
+  return s;
+}
+
+function render(){
+  const sc=SCEN[cur];
+  const nav=document.getElementById('nav');
+  nav.innerHTML='';
+  SCEN.forEach((x,i)=>{ const b=el(`<button class="${i===cur?'on':''}">${x.name}</button>`);
+    b.onclick=()=>{ cur=i; idx=0; stop(); render(); }; nav.appendChild(b); });
+
+  const main=document.getElementById('main'); main.innerHTML='';
+
+  /* 概览 / 纯说明场景 */
+  if(sc.plain){
+    main.appendChild(el(`<section><h2>${sc.name.replace(/^[^ ]+ /,'') }</h2><p>${sc.intro}</p></section>`));
+    if(sc.arch) main.appendChild(el(`<section><h2>分层与进程归属</h2>${archHTML()}</section>`));
+    main.appendChild(el(`<section><h2>四个维度与它们的列（写入唯一真源）</h2>
+      <table><thead><tr><th>msg_type</th><th>dim_type</th><th>允许写的列（严格白名单）</th><th>默认授权来源</th><th>SN 不存在时</th></tr></thead><tbody>
+      ${[['FACTORY_REGISTER','FACTORY','factory_code, factory_name, produce_time, register_status','资产/出厂系统','建档（INSERT + uk_sn 兜底）'],
+         ['ONLINE_CHANGE','ONLINE','online_status','设备平台','result=3 流水 + 正常提交 ack'],
+         ['BIND_CHANGE','BIND','bind_status, bind_target, bind_time','资产系统','result=3 不建档'],
+         ['RECOVER_CHANGE','RECOVER','recover_status, scrap_time','回收系统','result=3 不建档'],
+         ['PROFILE_CHANGE','PROFILE','model_code, model_name, remark, image_url','默认不授权外部','result=3 不建档'],
+         ['（后台编辑）','PROFILE + MAINTAIN','档案 4 列 + maintain_user, maintain_time','ADMIN','一次 CAS、一条流水'],
+         ['（后台逻辑删）','—（不属维度）','deleted = 1','ADMIN','已删行仍接受维度更新（不复活）']
+        ].map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></section>`));
+    main.appendChild(el(`<section><h2>状态与结果编码</h2><div class="grid3">
+      ${[['register_status','0 未注册 / 1 已注册'],['online_status','0 未知 / 1 在线 / 2 离线'],
+         ['bind_status','0 未绑定 / 1 已绑定'],['recover_status','0 正常 / 1 已回收 / 2 已报废'],
+         ['change_record.result','1 已更新 / 3 设备不存在 / 4 未授权来源'],['mq_dead_letter.status','0 待处理 / 1 已重放 / 2 已丢弃']]
+        .map(x=>`<div class="box b-mysql"><b>${x[0]}</b><small>${x[1]}</small></div>`).join('')}
+      </div><div class="note">流水 <code>result</code> <b>故意不含「重复」与「版本冲突」</b>：重复由 <code>mq_consume_record</code> 唯一索引承载、冲突由死信表与指标承载。<b>同一事实不在两张表记两种口径</b>，否则排障时两处结论互相矛盾。</div></section>`));
+    main.appendChild(el(`<section><h2>错误码表（HTTP 表传输层 · code 表业务层，前 3 位对齐状态码）</h2>
+      <table><thead><tr><th>HTTP</th><th>code</th><th>含义</th><th>出现入口</th></tr></thead><tbody>
+      ${[['200','0','成功','EP-001~003/005/010/011'],['201','0','创建成功','EP-004'],
+         ['204','—（无响应体，统一外壳的唯一例外）','删除成功','EP-009'],
+         ['400','4001 / 4002 / 4003 / 4004','参数缺失 / 格式错误 / 批量超上限 / 缺筛选条件','EP-001~005、EP-011'],
+         ['401','4010 / 4011','验签失败 / 时间戳超窗（后台＝未登录或 JWT 失效）','全部'],
+         ['403','4030 / 4031','无权限 / 该维度未授权本来源写入','EP-004/005/009/011'],
+         ['404','4040','设备不存在或已逻辑删；死信记录不存在','EP-001/005/009/010/011'],
+         ['405','4050','方法不允许','全部'],['409','4090 / 4091 / 4092 / 4093','SN 已存在 / 版本冲突需刷新 / 重放遇幂等冲突 / 死信已处理','EP-004/005/009/011'],
+         ['429','4290','超配额限流（必带 Retry-After）','EP-001/002'],
+         ['500','5000','内部错误','全部'],
+         ['503','5030','依赖超时或不可用，降级路径仍失败（fail-fast，<b>非熔断</b>）','仅 EP-001/002']]
+        .map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <div class="note">429 与所有对外响应恒带 <code>X-RateLimit-Limit/Remaining/Reset</code>；对外查询恒带 <code>Cache-Control: no-store</code>；成功与错误响应都返回 <code>trace_id</code>，且与响应头 <code>X-Trace-Id</code> 恒等。</div></section>`));
+    (sc.notes||[]).forEach(n=> main.appendChild(el(`<section><h2>要点</h2><p>${n}</p></section>`)));
+    return;
+  }
+
+  /* 播放器场景 */
+  main.appendChild(el(`<section><h2>${sc.name}</h2><p>${sc.intro}</p></section>`));
+  const player=el(`<section><div class="ctrl">
+      <button class="pri" id="prev">← 上一步</button><button class="pri" id="next">下一步 →</button>
+      <button id="play">▶ 自动播放</button><button id="reset">重置</button>
+      <span id="pos" class="mono" style="color:var(--sub)"></span></div>
+    <div class="player"><div class="steps"><ol id="olist"></ol></div><div id="right"></div></div></section>`);
+  main.appendChild(player);
+
+  drawRight(player);
+
+  player.querySelector('#prev').onclick=()=>{ idx=Math.max(0,idx-1); stop(); render(); };
+  player.querySelector('#next').onclick=()=>{ idx=Math.min(sc.steps.length-1,idx+1); stop(); render(); };
+  player.querySelector('#reset').onclick=()=>{ idx=0; stop(); render(); };
+  player.querySelector('#play').onclick=()=>{ timer?stop():start(player); };
+
+  function stop(){ if(timer){ clearInterval(timer); timer=null; }
+    const b=document.querySelector('#play'); if(b) b.textContent='▶ 自动播放'; }
+  function start(p){ p.querySelector('#play').textContent='⏸ 暂停';
+    timer=setInterval(()=>{ if(idx>=sc.steps.length-1){ stop(); return; } idx++; render(); }, 1800); }
+
+  function onelistRender(p){
+    const ol=p.querySelector('#olist'); ol.innerHTML='';
+    sc.steps.forEach((s,i)=>{ const li=el(`<li class="${i===idx?'cur':(i<idx?'done':'')}">${i+1}. ${s.t}${s.bad?' <span class="pill p-warn">反例</span>':''}</li>`);
+      li.onclick=()=>{ idx=i; stop(); render(); }; ol.appendChild(li); });
+    p.querySelector('#pos').textContent=`第 ${idx+1} / ${sc.steps.length} 步`;
+  }
+  function drawRight(p){
+    onelistRender(p);
+    const st=sc.init?buildState(sc):blank();
+    const step=sc.steps[idx];
+    const right=p.querySelector('#right'); right.innerHTML='';
+    const tags=(step.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
+    right.appendChild(el(`<div class="now"><h4>${idx+1}. ${step.t} ${step.bad?'<span class="pill p-warn">这一步是反例校验</span>':''}</h4>
+      <p>${step.d}</p><div>${tags}</div></div>`));
+
+    const panels=el(`<div class="panels"></div>`);
+    panels.appendChild(el(`<div class="pnl"><b>💾 MySQL · device_info（主档）</b>${devicePanel(st.dev, st.hl||[])}</div>`));
+    panels.appendChild(el(`<div class="pnl"><b>⚡ Redis · 键空间</b>${redisPanel(st.redis)}</div>`));
+    panels.appendChild(el(`<div class="pnl"><b>📨 Kafka 消息 / 位点 / 请求</b><div class="in">
+        <div class="kv"><b>topic</b><span class="mono">device.info.change · partition 2</span></div>
+        <div class="kv"><b>已提交 offset</b><span class="mono">${st.offset}</span></div>
+        ${st.req?`<div class="kv"><b>请求</b><span class="mono">${esc(st.req)}</span></div>`:''}
+        ${st.sql!==undefined?`<div class="kv"><b>本步 SQL 次数</b><span class="mono">${st.sql}</span></div>`:''}
+        ${st.headers?`<div class="kv"><b>响应头</b><span class="mono">${esc(st.headers)}</span></div>`:''}
+        ${st.msg?`<pre>${esc(JSON.stringify(st.msg,null,2))}</pre>`:'<div style="color:var(--sub);font-size:12px">（无消息体）</div>'}
+      </div></div>`));
+    panels.appendChild(el(`<div class="pnl"><b>🌐 HTTP 响应 / 计数</b><div class="in">
+        ${st.resp?`<div class="kv"><b>status</b><span class="pill ${st.resp.http[0]==='2'?'p-ok':(st.resp.http[0]==='4'?'p-warn':'p-bad')}">${st.resp.http}</span></div><pre>${esc(st.resp.body)}</pre>`
+          :'<div style="color:var(--sub);font-size:12px">（本步无对外响应）</div>'}
+        ${Object.keys(st.metrics).length?'<div style="margin-top:6px">'+Object.entries(st.metrics).map(([k,v])=>`<span class="tag">${k}=${v}</span>`).join('')+'</div>':''}
+      </div></div>`));
+    right.appendChild(panels);
+
+    const tables=el(`<div class="pnl" style="margin-top:12px"></div>`);
+    tables.innerHTML =
+      rowsPanel('mq_consume_record（幂等表，与主档同事务）', st.consume, ['source','msg_id','biz_id','msg_type','status','consume_time'])
+      + rowsPanel('device_info_change_record（变更流水，业务事实）',
+          st.record.map(r=>({ ...r, result:STAT[r.result]||r.result })),
+          ['sn','source','msg_id','msg_type','dim_type','before_json','after_json','result','op_user'])
+      + rowsPanel('mq_dead_letter（死信）', st.dead.map(d=>({ ...d, status:statusLabel(d.status) })),
+          ['id','msg_id','source','partition_no','offset_no','fail_reason','retry_count','status','handle_user'])
+      + rowsPanel('device_dim_source_auth（维度权威源，EP-012 每 60s 刷新）', st.auth, ['dim_type','source','enabled']);
+    right.appendChild(el(`<div style="padding:0 10px">${tables.innerHTML}</div>`));
+
+    right.appendChild(el(`<div class="pnl" style="margin-top:12px"><b>🖥 日志 / 语句轨迹（trace_id 关联，MDC）</b>
+      <div class="in log">${st.logs.slice(-14).map(l=>`<div class="l-${l.type}">[${l.type}] ${esc(l.text)}</div>`).join('')||'<div style="color:var(--sub)">（无）</div>'}</div></div>`));
+    (sc.notes||[]).forEach(n=> right.appendChild(el(`<div class="note">${n}</div>`)));
+  }
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight'){ const b=document.querySelector('#next'); b&&b.click(); }
+  if(e.key==='ArrowLeft'){ const b=document.querySelector('#prev'); b&&b.click(); }
+});
+render();
+</script>
+</body>
+</html>
